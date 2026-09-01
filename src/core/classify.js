@@ -1,22 +1,23 @@
 import { differenceInDays, addMonths, subMonths } from 'date-fns'
-import { HOLD_KEYWORDS, HOLD_OVERRIDE_DAYS, STATUS, isSendBlocked, frequencyToDays } from './constants'
+import { STATUS, isSendBlocked, frequencyToDays } from './constants'
+import { DEFAULT_RULES } from './rules'
 import { parseDate, parseMonthsFromTimeFrame } from './parseDate'
 
-function hasHoldKeyword(note) {
+function hasHoldKeyword(note, rules) {
   if (!note) return false
   const lower = note.toLowerCase()
-  return HOLD_KEYWORDS.some(kw => lower.includes(kw))
+  return rules.holdKeywords.some(kw => lower.includes(kw))
 }
 
-function festivalInWindow(timeFrame, today) {
+function festivalInWindow(timeFrame, today, rules) {
   const months = parseMonthsFromTimeFrame(timeFrame)
   if (months.length === 0) return false
-  const futureLimit = addMonths(today, 3)
-  const pastLimit = subMonths(today, 2)
+  const futureLimit = addMonths(today, rules.festivalFutureMonths)
+  const pastLimit = subMonths(today, rules.festivalPastMonths)
   // The booking window is CLOSED when the nearest occurrence of the festival's
-  // month falls in the dead zone [2 months past, 3 months future] — too close to
-  // book. It's open (eligible) only when no occurrence lands in that zone, i.e.
-  // the festival is still >3 months out or already >2 months past.
+  // month falls in the dead zone [festivalPastMonths past, festivalFutureMonths
+  // future] — too close to book. It's open (eligible) only when no occurrence
+  // lands in that zone.
   return !months.some(m => {
     const candidates = [
       new Date(today.getFullYear() - 1, m, 1),
@@ -27,7 +28,7 @@ function festivalInWindow(timeFrame, today) {
   })
 }
 
-export function classifyBooking(row, today) {
+export function classifyBooking(row, today, rules = DEFAULT_RULES) {
   const type = (row['Type'] || '').toLowerCase().trim()
   const note = row['Note'] || ''
   const followUpRaw = row['Follow Up Date'] || ''
@@ -40,22 +41,23 @@ export function classifyBooking(row, today) {
   // send/follow-up list; the red "!" flag is enough of a prompt to fix it.
   if (isSendBlocked(row)) return STATUS.MISSING_INFO
 
-  // Played within the last year (or a future/upcoming gig) → not for booking
-  // outreach right now. Mirrors the next-batch policy.
+  // Played recently (or a future/upcoming gig) → not for booking outreach right
+  // now. Mirrors the next-batch policy.
   const lastPlayed = parseDate(row['Last played'] || '')
-  if (lastPlayed && differenceInDays(today, lastPlayed) < 365) return STATUS.RECENTLY_PLAYED
+  if (lastPlayed && differenceInDays(today, lastPlayed) < rules.recentlyPlayedDays) return STATUS.RECENTLY_PLAYED
 
   const lastEmailed = parseDate(lastEmailedRaw)
-  // Per-venue re-contact window (Frequency column), defaulting to 30 days.
-  const freqDays = frequencyToDays(row['frequency'])
+  // Per-venue re-contact window (Frequency column), defaulting to the rules'
+  // defaultFrequencyDays.
+  const freqDays = frequencyToDays(row['frequency'], rules)
 
-  if (hasHoldKeyword(note)) {
-    const holdExpired = lastEmailed && differenceInDays(today, lastEmailed) >= HOLD_OVERRIDE_DAYS
+  if (hasHoldKeyword(note, rules)) {
+    const holdExpired = lastEmailed && differenceInDays(today, lastEmailed) >= rules.holdOverrideDays
     if (!holdExpired) return STATUS.ON_HOLD
   }
 
   if (type === 'festival') {
-    if (!festivalInWindow(timeFrame, today)) return STATUS.FESTIVAL_INELIGIBLE
+    if (!festivalInWindow(timeFrame, today, rules)) return STATUS.FESTIVAL_INELIGIBLE
   }
 
   const followUpDate = parseDate(followUpRaw)

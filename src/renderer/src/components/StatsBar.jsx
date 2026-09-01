@@ -1,7 +1,9 @@
 import { useMemo } from 'react'
-import { STATUS_META, ACTION_STATUSES, getMissingFields } from '@core/constants'
+import { STATUS_META, ACTION_STATUSES, getMissingFields, describeStatus } from '@core/constants'
+import { useRules } from '../lib/rulesContext'
 
 export default function StatsBar({ rows, activeStatus, onStatusClick, actionOnly, nextBatch, missingInfo, onActionOnlyToggle, onNextBatchToggle, onMissingInfoToggle, duplicate, duplicateCount, onDuplicateToggle, autoSend, onAutoSendToggle }) {
+  const rules = useRules()
   const counts = {}
   rows.forEach(r => { counts[r._status] = (counts[r._status] || 0) + 1 })
   // Next batch folds in manually flagged "Draft" venues (see row dots).
@@ -113,7 +115,7 @@ export default function StatsBar({ rows, activeStatus, onStatusClick, actionOnly
 
       {activeMeta && (
         <p className={`text-xs px-3 py-1.5 rounded-md inline-block ${activeMeta.badge} bg-opacity-60`}>
-          <span className="font-medium">{activeMeta.label}:</span> {activeMeta.description}
+          <span className="font-medium">{activeMeta.label}:</span> {describeStatus(activeStatus, rules)}
         </p>
       )}
     </div>

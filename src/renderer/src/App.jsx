@@ -6,6 +6,8 @@ import { effectiveBandOptions, bandsFromRows, normalizeBands } from '@core/bands
 import { computeNextBatch } from '@core/nextBatch'
 import { replyHealth } from '@core/replyStatus'
 import { computeDuplicates, dismissPair } from '@core/duplicates'
+import { DEFAULT_RULES, mergeRules } from '@core/rules'
+import { RulesProvider } from './lib/rulesContext'
 import StatsBar from './components/StatsBar'
 import FilterBar from './components/FilterBar'
 import BookingTable from './components/BookingTable'
@@ -26,6 +28,9 @@ export default function App() {
     const c = getConfig()
     return { ...c, bands: normalizeBands(c.bands) }
   })
+  // Phase 2 loads these from the settings store; until then the defaults are
+  // the live rules.
+  const [rules, setRules] = useState(() => mergeRules(DEFAULT_RULES))
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -72,6 +77,18 @@ export default function App() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     load()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Reclassify in place whenever the rules change, so a rules edit shows up on
+  // the badges and the next-batch chip immediately — no reload needed.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setRows(prev => {
+      if (prev.length === 0) return prev
+      const reclassified = prev.map(r => ({ ...r, _status: classifyBooking(r, today, rules) }))
+      const nextBatchSet = computeNextBatch(reclassified, today, rules)
+      return reclassified.map(r => ({ ...r, _nextBatch: nextBatchSet.has(r._idx), _missingSeverity: getMissingSeverity(r) }))
+    })
+  }, [rules, today])
 
   // When a band's touring dates or filler flag change in Settings, offer to push
   // those values onto that band's venue rows (Dates / filler columns). Applied as
@@ -132,8 +149,8 @@ export default function App() {
   }
 
   function handleSaveSuccess(updatedRows) {
-    const reclassified = updatedRows.map(r => ({ ...r, _status: classifyBooking(r, today) }))
-    const nextBatchSet = computeNextBatch(reclassified, today)
+    const reclassified = updatedRows.map(r => ({ ...r, _status: classifyBooking(r, today, rules) }))
+    const nextBatchSet = computeNextBatch(reclassified, today, rules)
     setRows(reclassified.map(r => ({ ...r, _nextBatch: nextBatchSet.has(r._idx), _missingSeverity: getMissingSeverity(r) })))
     setEdits({})
     setDeletions(new Set())
@@ -151,15 +168,15 @@ export default function App() {
       // `additions` so they show in — and enable — the Save flow.
       const nextIdx = rows.reduce((max, r) => Math.max(max, r._idx), -1) + 1
       const appended = importedRaw.map((r, i) => ({ ...r, _idx: nextIdx + i }))
-      const merged = [...rows, ...appended].map(r => ({ ...r, _status: classifyBooking(r, today) }))
-      const nextBatchSet = computeNextBatch(merged, today)
+      const merged = [...rows, ...appended].map(r => ({ ...r, _status: classifyBooking(r, today, rules) }))
+      const nextBatchSet = computeNextBatch(merged, today, rules)
       setRows(merged.map(r => ({ ...r, _nextBatch: nextBatchSet.has(r._idx), _missingSeverity: getMissingSeverity(r) })))
       setAdditions(prev => new Set([...prev, ...appended.map(r => r._idx)]))
       return
     }
     // replace
-    const classified = importedRaw.map((r, i) => ({ ...r, _idx: i, _status: classifyBooking(r, today) }))
-    const nextBatchSet = computeNextBatch(classified, today)
+    const classified = importedRaw.map((r, i) => ({ ...r, _idx: i, _status: classifyBooking(r, today, rules) }))
+    const nextBatchSet = computeNextBatch(classified, today, rules)
     setRows(classified.map(r => ({ ...r, _nextBatch: nextBatchSet.has(r._idx), _missingSeverity: getMissingSeverity(r) })))
     setEdits({})
     setDeletions(new Set())
@@ -223,7 +240,7 @@ export default function App() {
       Contact: '', Website: '', Type: '', Note: '', Status: '',
       'Last emailed': '', 'Follow Up Date': '', 'Last played': '',
       'Time Frame': '', Dates: '', Text: '', Draft: '', Auto: '', frequency: '',
-      _status: classifyBooking({}, today),
+      _status: classifyBooking({}, today, rules),
       _nextBatch: false,
       _missingSeverity: getMissingSeverity({}),
     }
@@ -329,6 +346,7 @@ export default function App() {
   )
 
   return (
+    <RulesProvider rules={rules}>
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors">
       <div className="max-w-[1700px] mx-auto px-4 py-6 space-y-5">
 
@@ -520,5 +538,6 @@ export default function App() {
         />
       )}
     </div>
+    </RulesProvider>
   )
 }

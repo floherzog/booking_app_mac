@@ -1,46 +1,6 @@
 import { STATUS_META } from '@core/constants'
-
-// Mirrors classifyBooking() in lib/classify.js, in evaluation order. Each node is a
-// gate (orange trunk): if it matches, the venue gets the status on the "yes" branch;
-// otherwise the trunk continues down to the next gate ("no"). Some gates open a small
-// sub-decision before reaching an outcome.
-const NODES = [
-  { col: 'Type', q: 'Type is "dead"', yes: 'DEAD' },
-  {
-    col: 'Required fields', q: 'Missing Venue, Band, or Email', yes: 'MISSING_INFO',
-    note: 'Hidden from every send/follow-up list until the flagged fields are filled in.',
-  },
-  {
-    col: 'Last Played', q: 'Played within the last 365 days', yes: 'RECENTLY_PLAYED',
-    note: 'A recent or upcoming gig — not an outreach target right now.',
-  },
-  {
-    col: 'Note', q: 'Note contains a hold keyword',
-    note: 'anrufen · phone · call · keine email · warten · wait · pause · later · nächstes jahr · kein/keine reminder · no reminder(s) · melden sich bei interesse · will get back · im austausch · …',
-    sub: { q: 'Last emailed ≥ 365 days ago?', yes: { fall: 'hold expired — keep going' }, no: 'ON_HOLD' },
-  },
-  {
-    col: 'Type + Time Frame', q: 'Type is "festival" and the booking window is closed', yes: 'FESTIVAL_INELIGIBLE',
-    note: 'The window is open only when the festival month is still >3 months out or already >2 months past.',
-  },
-  {
-    col: 'Follow Up + Last Emailed', q: 'Follow-up date set AND already emailed on/after it',
-    note: 'Follow-up is fulfilled — fall back to the normal recency split.',
-    sub: { q: 'Last emailed within the follow-up window?', yes: 'RECENT_CONTACT', no: 'SEND' },
-  },
-  {
-    col: 'Follow Up Date', q: 'Follow-up date set (and not yet fulfilled)',
-    sub: { q: 'Is it today or earlier?', yes: 'FOLLOW_UP_DUE', no: 'FOLLOW_UP_PENDING' },
-  },
-  { col: 'Last Emailed', q: 'Never emailed', yes: 'NEVER_CONTACTED' },
-  {
-    col: 'Last Emailed', q: 'Otherwise: last emailed within the follow-up window', terminal: true,
-    yes: 'RECENT_CONTACT', no: 'SEND',
-  },
-]
-
-// The follow-up window is the venue's Frequency (default 1 month / 30 days).
-const WINDOW_NOTE = 'Follow-up window = the venue’s Frequency setting (default 1 month / 30 days).'
+import { buildLogicNodes, describeWindow, describeBatchRule } from '@core/logicTree'
+import { useRules } from '../lib/rulesContext'
 
 // A leaf: either a status outcome (blue-ish status pill) or a "keep going" fall-through.
 function Outcome({ value }) {
@@ -146,6 +106,8 @@ function Gate({ node, isLast }) {
 }
 
 export default function LogicModal({ onClose }) {
+  const rules = useRules()
+  const NODES = buildLogicNodes(rules)
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[1100] p-4" onClick={onClose}>
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
@@ -182,7 +144,7 @@ export default function LogicModal({ onClose }) {
             <span className="inline-flex items-center gap-1.5"><span className="px-1.5 py-0.5 rounded-full bg-gray-200 dark:bg-gray-700">pill</span> outcome</span>
           </div>
           <p className="text-xs text-gray-400 dark:text-gray-500">
-            {WINDOW_NOTE} Logic mirrors <code className="bg-gray-200 dark:bg-gray-700 dark:text-gray-300 px-1 rounded">create_booking_batch.py</code> from the openclaw scripts.
+            {describeWindow(rules)} {describeBatchRule(rules)}{' '}
             "Action needed" = Send + Follow Up + Never Contacted.
           </p>
         </div>

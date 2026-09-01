@@ -1,30 +1,17 @@
-export const HOLD_OVERRIDE_DAYS = 365
-
-// Default re-contact window when a venue has no Frequency set.
-export const DEFAULT_FREQUENCY_DAYS = 30
+import { DEFAULT_RULES } from './rules'
 
 // Frequency column → re-contact window in days. Empty/unset falls back to the
-// default. Presets and custom values are stored as "N months" (e.g. "2 months");
-// a "N days" form is also accepted for robustness.
-export function frequencyToDays(freq) {
-  if (!freq) return DEFAULT_FREQUENCY_DAYS
+// configured default. Presets and custom values are stored as "N months"
+// (e.g. "2 months"); a "N days" form is also accepted for robustness.
+export function frequencyToDays(freq, rules = DEFAULT_RULES) {
+  const fallback = rules.defaultFrequencyDays
+  if (!freq) return fallback
   const m = String(freq).match(/(\d+)/)
-  if (!m) return DEFAULT_FREQUENCY_DAYS
+  if (!m) return fallback
   const n = parseInt(m[1], 10)
-  if (!n) return DEFAULT_FREQUENCY_DAYS
+  if (!n) return fallback
   return /day/i.test(freq) ? n : n * 30
 }
-
-export const HOLD_KEYWORDS = [
-  'anrufen', 'telefon', 'phone', 'call', 'keine email', 'no email',
-  'nicht emailen', 'nicht mailen', 'vorerst keine', 'erstmal keine',
-  "dont email", "don't email", 'nächstes jahr', 'next year', 'frühestens',
-  'warten', 'wait', 'später', 'later', 'pause', 'kein outreach',
-  'already in contact', 'already talking', 'bereits in kontakt', 'schon in kontakt',
-  'erst nächstes jahr', 'im austausch', 'ongoing conversation',
-  'keine reminder', 'kein reminder', 'no reminder', 'no reminders',
-  'melden sich bei interesse', 'will get back', 'they will get back',
-]
 
 export const STATUS = {
   SEND: 'SEND',
@@ -42,7 +29,6 @@ export const STATUS = {
 export const STATUS_META = {
   [STATUS.SEND]: {
     label: 'Send',
-    description: 'Last contacted more than 30 days ago — eligible to email again.',
     badge: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300',
     row: 'border-l-4 border-amber-400',
     mapColor: '#F59E0B',
@@ -50,7 +36,6 @@ export const STATUS_META = {
   },
   [STATUS.FOLLOW_UP_DUE]: {
     label: 'Follow Up',
-    description: 'Scheduled follow-up date has passed — time to check in.',
     badge: 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300',
     row: 'border-l-4 border-red-500',
     mapColor: '#EF4444',
@@ -58,7 +43,6 @@ export const STATUS_META = {
   },
   [STATUS.NEVER_CONTACTED]: {
     label: 'Never Contacted',
-    description: 'No outreach on record — fresh candidate for a first email.',
     badge: 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300',
     row: 'border-l-4 border-violet-400',
     mapColor: '#8B5CF6',
@@ -66,7 +50,6 @@ export const STATUS_META = {
   },
   [STATUS.FOLLOW_UP_PENDING]: {
     label: 'Waiting',
-    description: 'Follow-up date is set in the future — check back then.',
     badge: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',
     row: '',
     mapColor: '#3B82F6',
@@ -74,7 +57,6 @@ export const STATUS_META = {
   },
   [STATUS.RECENT_CONTACT]: {
     label: 'Recent',
-    description: 'Emailed within the last 30 days — too soon to follow up.',
     badge: 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300',
     row: '',
     mapColor: '#22C55E',
@@ -82,7 +64,6 @@ export const STATUS_META = {
   },
   [STATUS.ON_HOLD]: {
     label: 'On Hold',
-    description: 'Note contains a hold marker (e.g. "warten", "anrufen", "next year") — skipped by the booking script.',
     badge: 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400',
     row: 'opacity-60',
     mapColor: '#9CA3AF',
@@ -90,7 +71,6 @@ export const STATUS_META = {
   },
   [STATUS.RECENTLY_PLAYED]: {
     label: 'Recently Played',
-    description: 'Last played less than a year ago (or has an upcoming gig) — skipped for booking outreach until more than a year has passed.',
     badge: 'bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300',
     row: 'opacity-70',
     mapColor: '#14B8A6',
@@ -98,7 +78,6 @@ export const STATUS_META = {
   },
   [STATUS.FESTIVAL_INELIGIBLE]: {
     label: 'Festival (not now)',
-    description: 'Festival booking window is not open right now — must be more than 3 months out or more than 2 months past.',
     badge: 'bg-sky-100 text-sky-600 dark:bg-sky-900/40 dark:text-sky-300',
     row: 'opacity-70',
     mapColor: '#0EA5E9',
@@ -106,7 +85,6 @@ export const STATUS_META = {
   },
   [STATUS.MISSING_INFO]: {
     label: 'Missing Info',
-    description: 'Missing a field required to send (venue name, band, or email). Fix the flagged fields before it can be emailed — hidden from send/follow-up lists until then.',
     badge: 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300',
     row: 'border-l-4 border-orange-400',
     mapColor: '#FB923C',
@@ -114,12 +92,30 @@ export const STATUS_META = {
   },
   [STATUS.DEAD]: {
     label: 'Dead',
-    description: 'Type is set to "dead" — no longer being booked, excluded from all outreach.',
     badge: 'bg-zinc-100 text-zinc-400 dark:bg-zinc-800 dark:text-zinc-500',
     row: 'opacity-50',
     mapColor: '#A1A1AA',
     priority: 10,
   },
+}
+
+// Status blurbs, with every threshold read from the active rules rather than
+// baked into the text. StatsBar and the Rules editor render these.
+const STATUS_DESCRIPTIONS = {
+  [STATUS.SEND]: r => `Last contacted more than ${r.defaultFrequencyDays} days ago (or the venue's own Frequency) — eligible to email again.`,
+  [STATUS.FOLLOW_UP_DUE]: () => 'Scheduled follow-up date has passed — time to check in.',
+  [STATUS.NEVER_CONTACTED]: () => 'No outreach on record — fresh candidate for a first email.',
+  [STATUS.FOLLOW_UP_PENDING]: () => 'Follow-up date is set in the future — check back then.',
+  [STATUS.RECENT_CONTACT]: r => `Emailed within the last ${r.defaultFrequencyDays} days (or the venue's own Frequency) — too soon to follow up.`,
+  [STATUS.ON_HOLD]: r => `Note contains a hold marker (e.g. ${r.holdKeywords.slice(0, 3).map(k => `"${k}"`).join(', ')}) — skipped for outreach until ${r.holdOverrideDays} days have passed.`,
+  [STATUS.RECENTLY_PLAYED]: r => `Last played less than ${r.recentlyPlayedDays} days ago (or has an upcoming gig) — skipped for booking outreach until then.`,
+  [STATUS.FESTIVAL_INELIGIBLE]: r => `Festival booking window is not open right now — must be more than ${r.festivalFutureMonths} months out or more than ${r.festivalPastMonths} months past.`,
+  [STATUS.MISSING_INFO]: () => 'Missing a field required to send (venue name, band, or email). Fix the flagged fields before it can be emailed — hidden from send/follow-up lists until then.',
+  [STATUS.DEAD]: () => 'Type is set to "dead" — no longer being booked, excluded from all outreach.',
+}
+
+export function describeStatus(status, rules = DEFAULT_RULES) {
+  return STATUS_DESCRIPTIONS[status]?.(rules) || ''
 }
 
 export const ACTION_STATUSES = new Set([STATUS.SEND, STATUS.FOLLOW_UP_DUE, STATUS.NEVER_CONTACTED])
@@ -188,14 +184,6 @@ export const APP_COLUMNS = [
   { key: 'Auto', label: 'Auto' },
   { key: 'filler', label: 'filler' },
 ]
-
-export const DEFAULT_CONFIG = {
-  csvRepo: 'floherzog/booking_list',
-  csvPath: 'data/booking_junolist_current.csv',
-  scriptRepo: 'floherzog/openclaw-backup',
-  scriptPath: 'scripts/create_booking_batch.py',
-  bands: [],
-}
 
 export const CRITICAL_FIELDS = ['Venue', 'Email', 'Band', 'Contact']
 
