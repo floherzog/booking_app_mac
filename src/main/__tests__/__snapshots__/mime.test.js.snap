@@ -1,0 +1,65 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`buildDraftMime > snapshot: a draft with an inline asset 1`] = `
+"From: Flo <flo@example.com>
+To: venue@example.com
+Subject: Booking-Anfrage Club X
+Message-ID: <MESSAGE_ID>
+Date: DATE
+MIME-Version: 1.0
+Content-Type: multipart/alternative;
+ boundary="BOUNDARY"
+
+----_BOUNDARY_-Part_1
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 7bit
+
+Hallo Anna
+----_BOUNDARY_-Part_1
+Content-Type: multipart/related; type="text/html";
+ boundary="BOUNDARY"
+
+----_BOUNDARY_-Part_3
+Content-Type: text/html; charset=utf-8
+Content-Transfer-Encoding: quoted-printable
+
+<!doctype html><html><body><p>Foto:</p><img src=3D"cid:asset-press.=
+png"></body></html>
+----_BOUNDARY_-Part_3
+Content-Type: image/png; name=press.png
+Content-ID: <asset-press.png>
+Content-Transfer-Encoding: base64
+Content-Disposition: inline; filename=press.png
+
+iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6
+kgAAAABJRU5ErkJggg==
+----_BOUNDARY_-Part_3--
+
+----_BOUNDARY_-Part_1--
+"
+`;
+
+exports[`buildDraftMime > snapshot: a plain draft 1`] = `
+"From: Flo <flo@example.com>
+To: venue@example.com
+Subject: Booking-Anfrage Club X
+Message-ID: <MESSAGE_ID>
+Date: DATE
+MIME-Version: 1.0
+Content-Type: multipart/alternative;
+ boundary="BOUNDARY"
+
+----_BOUNDARY_-Part_1
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 7bit
+
+Hallo Anna
+----_BOUNDARY_-Part_1
+Content-Type: text/html; charset=utf-8
+Content-Transfer-Encoding: quoted-printable
+
+<!doctype html><html><body style=3D"color:#111827"><p style=3D"margin:0 0 =
+12px 0">Hallo <strong>Anna</strong></p></body></html>
+----_BOUNDARY_-Part_1--
+"
+`;

@@ -33,6 +33,12 @@ const api = {
   deleteTemplate: id => ipcRenderer.invoke('templates:delete', id),
   saveTemplateAsset: args => ipcRenderer.invoke('templates:saveAsset', args),
 
+  // Apple Mail drafts
+  testMailConnection: () => ipcRenderer.invoke('mail:testConnection'),
+  appendDraft: args => ipcRenderer.invoke('mail:appendDraft', args),
+  appleScriptDraft: args => ipcRenderer.invoke('mail:appleScriptDraft', args),
+  appleScriptCheck: () => ipcRenderer.invoke('mail:appleScriptCheck'),
+
   // Geocoding (Nominatim needs a User-Agent the renderer may not set)
   geocode: (city, country) => ipcRenderer.invoke('geo:geocode', city, country),
   geoCacheSnapshot: () => ipcRenderer.invoke('geo:cacheSnapshot'),

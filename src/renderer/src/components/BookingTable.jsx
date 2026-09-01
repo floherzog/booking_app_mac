@@ -14,6 +14,7 @@ import { lastEmailedColor, followUpColor, lastPlayedColor, lastReplyColor } from
 import { ADVANCED_COLUMNS, STATUS_META, HEALTH_RANK, getMissingFields, getMissingSeverity } from '@core/constants'
 import { parseDate, formatDateDDMMYY, toInputValue, fromInputValue } from '@core/parseDate'
 import { parseReplyStatus, composeReplyStatus, replyHealth } from '@core/replyStatus'
+import { prepareDraft } from '../lib/drafts'
 
 // Subtle row tint per reply-health category. Categories without a tint (replied,
 // not-yet-contacted) read neutral. Green (confirmed gig) wins over the rest.
@@ -216,6 +217,7 @@ const COLUMNS = [
       const auto = (edits[row._idx]?.['Auto'] ?? row['Auto'] ?? '') === 'TRUE'
       return (
         <div className="flex flex-col gap-1 items-start">
+          <DraftAction row={{ ...row, ...(edits[row._idx] || {}) }} meta={i.table.options.meta} />
           <FlagPill
             label="Draft" active={draft}
             activeClass="bg-emerald-500 text-white border-emerald-500"
@@ -234,6 +236,34 @@ const COLUMNS = [
 
 // Checkbox column injected at the front only in bulk-select mode. The header
 // checkbox selects/clears every currently-shown (filtered) row.
+// One-click draft straight from the row. Disabled (with the reason on hover)
+// when the venue has no email or no template for its band and language.
+function DraftAction({ row, meta }) {
+  const { templates, languages, onQuickDraft, draftingIdx, draftResults } = meta
+  if (!onQuickDraft) return null
+
+  const prepared = prepareDraft(row, templates || [], languages)
+  const busy = draftingIdx === row._idx
+  const result = draftResults?.[row._idx]
+
+  return (
+    <button
+      onClick={e => { e.stopPropagation(); onQuickDraft(row) }}
+      disabled={!prepared.ok || busy}
+      title={prepared.ok ? `Create a draft in Mail (${prepared.language})` : prepared.reason}
+      className={`px-1.5 py-0.5 rounded border text-[11px] leading-none transition-colors disabled:opacity-30 ${
+        result?.ok
+          ? 'border-green-400 text-green-600 dark:text-green-400'
+          : result
+            ? 'border-red-400 text-red-600 dark:text-red-400'
+            : 'border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:border-gray-400 dark:hover:border-gray-500'
+      }`}
+    >
+      {busy ? '…' : result?.ok ? '✉ ✓' : result ? '✉ ✗' : '✉'}
+    </button>
+  )
+}
+
 const SELECT_COLUMN = helper.display({
   id: '_select',
   size: 32,
@@ -495,7 +525,7 @@ function MobileCard({ row, edits, onVenueClick, onEdit }) {
   )
 }
 
-export default function BookingTable({ rows, edits, onEdit, onVenueClick, sortBy, extraField, bandOptions, selectMode = false, selected, onToggleRow, onToggleAll }) {
+export default function BookingTable({ rows, edits, onEdit, onVenueClick, sortBy, extraField, bandOptions, selectMode = false, selected, onToggleRow, onToggleAll, templates, languages, onQuickDraft, draftingIdx, draftResults }) {
   const [sorting, setSorting] = useState(sortBy || [{ id: '_status', desc: false }])
 
   useEffect(() => {
@@ -522,7 +552,7 @@ export default function BookingTable({ rows, edits, onEdit, onVenueClick, sortBy
     onSortingChange: setSorting,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
-    meta: { edits, onEdit, onVenueClick, bandOptions, selected, onToggleRow, onToggleAll },
+    meta: { edits, onEdit, onVenueClick, bandOptions, selected, onToggleRow, onToggleAll, templates, languages, onQuickDraft, draftingIdx, draftResults },
   })
 
   const sortedRows = table.getRowModel().rows

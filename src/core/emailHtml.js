@@ -3,6 +3,10 @@ import StarterKit from '@tiptap/starter-kit'
 import Image from '@tiptap/extension-image'
 import { VideoLink } from './videoLink.js'
 
+// Re-exported for convenience; it lives apart so the main process can use it
+// without dragging TipTap in (see core/htmlText.js).
+export { htmlToText } from './htmlText.js'
+
 // One extension set for the editor and for rendering, so what you type is what
 // the email contains. StarterKit v3 already ships Link and Underline.
 export const EMAIL_EXTENSIONS = [
@@ -61,21 +65,4 @@ export function renderEmailHtml(bodyJSON) {
     bodyHtml: html,
     cids,
   }
-}
-
-// A plain-text alternative for the multipart/alternative part: block tags become
-// line breaks, everything else is dropped and entities are decoded.
-export function htmlToText(html) {
-  return html
-    .replace(/<\/(p|div|h[1-6]|li|blockquote)>/gi, '\n\n')
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<[^>]+>/g, '')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/\n{3,}/g, '\n\n')
-    .trim()
 }

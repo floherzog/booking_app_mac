@@ -22,6 +22,12 @@ export function parseDate(str) {
   if (!str || typeof str !== 'string') return null
   const s = str.trim()
   if (!s) return null
+  // A full ISO timestamp (the draft log writes these) carries a time of day the
+  // day-only formats below would throw away.
+  if (/^\d{4}-\d{2}-\d{2}T/.test(s)) {
+    const iso = new Date(s)
+    if (isValid(iso)) return iso
+  }
   for (const fmt of FORMATS) {
     // Try English (default) then German, so month names like "Juni 2027" parse.
     for (const opts of [undefined, { locale: de }]) {

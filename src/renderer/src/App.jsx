@@ -11,6 +11,9 @@ import { RulesProvider } from './lib/rulesContext'
 import { getAdapter, isStorageConfigured } from './lib/storageAdapters'
 import FirstRun from './components/FirstRun'
 import TemplatesManager from './components/TemplatesManager'
+import BulkDraftModal from './components/BulkDraftModal'
+import { listTemplates } from './lib/templates'
+import { draftKey, draftedAt, createDraft } from './lib/drafts'
 import StatsBar from './components/StatsBar'
 import FilterBar from './components/FilterBar'
 import BookingTable from './components/BookingTable'
@@ -36,6 +39,11 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false)
   const [showImport, setShowImport] = useState(false)
   const [showTemplates, setShowTemplates] = useState(false)
+  const [showBulkDraft, setShowBulkDraft] = useState(false)
+  const [templates, setTemplates] = useState([])
+  // Transient per-row draft feedback for the table action.
+  const [draftingIdx, setDraftingIdx] = useState(null)
+  const [draftResults, setDraftResults] = useState({})
   const [showSave, setShowSave] = useState(false)
   const [showLogic, setShowLogic] = useState(false)
   const [confirmDiscard, setConfirmDiscard] = useState(false)
@@ -110,6 +118,15 @@ export default function App() {
     }).catch(e => setError(e.message))
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
+  const refreshTemplates = useCallback(() => {
+    listTemplates().then(setTemplates).catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    refreshTemplates()
+  }, [refreshTemplates])
+
   // Reclassify in place whenever the rules change, so a rules edit shows up on
   // the badges and the next-batch chip immediately — no reload needed.
   useEffect(() => {
@@ -155,6 +172,36 @@ export default function App() {
     // A rules change reclassifies through the effect below; a storage change
     // means the venues themselves come from somewhere else now, so refetch.
     if (JSON.stringify(saved.storage) !== JSON.stringify(settings.storage)) await load(saved)
+  }
+
+  // A created draft is recorded in settings, never on the venue row: a draft
+  // is not a sent email, so "Last emailed" must stay exactly as it was.
+  const recordDraft = useCallback(async row => {
+    const at = new Date().toISOString()
+    setSettings(prev => (prev ? { ...prev, draftLog: { ...prev.draftLog, [draftKey(row)]: at } } : prev))
+    try {
+      const current = await getSettings()
+      await persist({ ...current, draftLog: { ...current.draftLog, [draftKey(row)]: at } })
+    } catch { /* the log is a convenience; a failed write must not break drafting */ }
+  }, [persist])
+
+  async function handleQuickDraft(row) {
+    setDraftingIdx(row._idx)
+    try {
+      await createDraft(row, templates, settings.languages)
+      setDraftResults(prev => ({ ...prev, [row._idx]: { ok: true } }))
+      await recordDraft(row)
+    } catch (e) {
+      setDraftResults(prev => ({ ...prev, [row._idx]: { ok: false, error: e.message } }))
+      setError(e.message)
+    } finally {
+      setDraftingIdx(null)
+    }
+  }
+
+  // Staged as ordinary edits so the change goes through SaveModal like any other.
+  function clearDraftFlags(idxs) {
+    idxs.forEach(idx => handleEdit(idx, 'Draft', ''))
   }
 
   function handleEdit(rowIndex, field, value) {
@@ -391,6 +438,7 @@ export default function App() {
           Save <span className="bg-amber-400 text-amber-900 font-bold px-1 py-0.5 rounded-full leading-none">{editCount}</span>
         </button>
       )}
+      <button onClick={() => setShowBulkDraft(true)} className={iconBtn} title="Create drafts in Mail">✉</button>
       <button onClick={() => setShowLogic(true)} className={iconBtn} title="How venues are classified">ⓘ</button>
       <button onClick={() => load()} disabled={loading} className={iconBtn}>{loading ? '…' : '↻'}</button>
       <button onClick={() => setShowSettings(true)} className={iconBtn} title="Settings">{SlidersIcon}</button>
@@ -434,6 +482,7 @@ export default function App() {
                 )}
               </>
             )}
+            <button onClick={() => setShowBulkDraft(true)} className="text-sm text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors" title="Create drafts in Mail for several venues">✉ Drafts</button>
             <button onClick={() => setShowLogic(true)} className="text-sm text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors" title="How venues are classified">ⓘ Logic</button>
             <button onClick={() => load()} disabled={loading} className="text-sm text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-40 transition-colors">{loading ? 'Loading…' : '↻'}</button>
             <button onClick={() => setShowSettings(true)} className="text-sm text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors" title="Settings">⚙</button>
@@ -526,6 +575,11 @@ export default function App() {
                   selected={selected}
                   onToggleRow={toggleRowSelect}
                   onToggleAll={toggleAllSelect}
+                  templates={templates}
+                  languages={settings.languages}
+                  onQuickDraft={handleQuickDraft}
+                  draftingIdx={draftingIdx}
+                  draftResults={draftResults}
                 />
               </>
             )}
@@ -553,8 +607,19 @@ export default function App() {
         />
       )}
 
-      {showSettings && <SettingsPanel config={settings} rows={rows} onOpenImport={() => { setShowSettings(false); setShowImport(true) }} onOpenTemplates={() => { setShowSettings(false); setShowTemplates(true) }} onSave={handleSettingsSave} onClose={() => setShowSettings(false)} />}
-      {showTemplates && <TemplatesManager settings={settings} rows={rows} onClose={() => setShowTemplates(false)} />}
+      {showSettings && <SettingsPanel config={settings} rows={rows} onOpenImport={() => { setShowSettings(false); setShowImport(true) }} onOpenTemplates={() => { setShowSettings(false); setShowTemplates(true) }} onSave={handleSettingsSave} onPersist={form => persist({ ...settings, ...form })} onClose={() => setShowSettings(false)} />}
+      {showTemplates && <TemplatesManager settings={settings} rows={rows} onClose={() => { setShowTemplates(false); refreshTemplates() }} />}
+      {showBulkDraft && (
+        <BulkDraftModal
+          rows={rows}
+          filteredRows={filteredRows}
+          templates={templates}
+          languages={settings.languages}
+          onDraftCreated={recordDraft}
+          onClearDraftFlags={clearDraftFlags}
+          onClose={() => setShowBulkDraft(false)}
+        />
+      )}
       {showImport && <ImportWizard rows={rows} onImport={handleImport} onClose={() => setShowImport(false)} />}
       {showSave && <SaveModal rows={rows} edits={edits} deletions={deletions} additions={additions} adapter={adapter} onSuccess={handleSaveSuccess} onClose={() => setShowSave(false)} />}
       {mergeTarget && (
@@ -582,6 +647,10 @@ export default function App() {
           onDismissDuplicate={handleDismiss}
           onOpenMerge={handleOpenMerge}
           bandOptions={bandOptions}
+          templates={templates}
+          languages={settings.languages}
+          draftedAtIso={draftedAt(settings, rows.find(r => r._idx === venueDetail) || {})}
+          onDraftCreated={recordDraft}
           onOpenMap={() => {
             const row = rows.find(r => r._idx === venueDetail)
             setMapFocusRow(row)

@@ -5,6 +5,7 @@ import { geocodeCity } from '../lib/geocode'
 import { MapContainer, TileLayer, CircleMarker } from 'react-leaflet'
 import StatusBadge from './StatusBadge'
 import RelDate from './RelDate'
+import DraftVenueButton from './DraftVenueButton'
 import { lastEmailedColor, followUpColor, lastPlayedColor } from '@core/dateColors'
 
 function MiniMap({ city, country, status, onOpenMap }) {
@@ -310,7 +311,7 @@ function Field({ fieldDef, value, isEdited, onChange, row }) {
   )
 }
 
-export default function VenueDetailModal({ rowIndex, row, edits, onEdit, onClose, onDelete, duplicatePartners = [], onDismissDuplicate, onOpenMerge, onSave, editCount, onOpenMap, bandOptions = [] }) {
+export default function VenueDetailModal({ rowIndex, row, edits, onEdit, onClose, onDelete, duplicatePartners = [], onDismissDuplicate, onOpenMerge, onSave, editCount, onOpenMap, bandOptions = [], templates = [], languages, draftedAtIso, onDraftCreated }) {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const rowEdits = edits[rowIndex] || {}
   const effective = { ...row, ...rowEdits }
@@ -431,6 +432,14 @@ export default function VenueDetailModal({ rowIndex, row, edits, onEdit, onClose
               Delete venue
             </button>
           )}
+          <div className="flex items-center gap-3">
+            <DraftVenueButton
+              row={effective}
+              templates={templates}
+              languages={languages}
+              draftedAtIso={draftedAtIso}
+              onDraftCreated={onDraftCreated}
+            />
           {editCount > 0 ? (
             <button
               onClick={onSave}
@@ -442,6 +451,7 @@ export default function VenueDetailModal({ rowIndex, row, edits, onEdit, onClose
           ) : (
             <p className="text-xs text-gray-400 dark:text-gray-500">No unsaved changes</p>
           )}
+          </div>
         </div>
       </div>
     </div>

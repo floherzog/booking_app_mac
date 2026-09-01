@@ -7,6 +7,10 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
-    include: ['src/core/__tests__/**/*.test.js'],
+    include: [
+      'src/core/__tests__/**/*.test.js',
+      'src/main/__tests__/**/*.test.js',
+      'src/renderer/src/**/__tests__/**/*.test.js',
+    ],
   },
 })

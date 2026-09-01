@@ -18,10 +18,11 @@ const SECTIONS = [
   { id: 'bands', label: 'Bands' },
   { id: 'languages', label: 'Languages' },
   { id: 'templates', label: 'Templates' },
+  { id: 'mail', label: 'Mail' },
   { id: 'data', label: 'Data' },
 ]
 
-export default function SettingsPanel({ config, rows = [], onOpenImport, onOpenTemplates, onSave, onClose }) {
+export default function SettingsPanel({ config, rows = [], onOpenImport, onOpenTemplates, onSave, onPersist, onClose }) {
   const [form, setForm] = useState(config)
   const [section, setSection] = useState('general')
   // Theme stays a per-Mac preference in localStorage (see the note in the
@@ -30,15 +31,23 @@ export default function SettingsPanel({ config, rows = [], onOpenImport, onOpenT
   const [newBand, setNewBand] = useState('')
   const [githubToken, setGithubToken] = useState('')
   const [hasGithubToken, setHasGithubToken] = useState(false)
+  const [imapPassword, setImapPassword] = useState('')
+  const [hasImapPassword, setHasImapPassword] = useState(false)
+  // Populated by Test connection, so the Drafts picker only ever offers real mailboxes.
+  const [mailboxes, setMailboxes] = useState([])
+  const [mailTest, setMailTest] = useState('')
+  const [testing, setTesting] = useState(false)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
 
   const bands = form.bands || []
   const storage = form.storage || {}
+  const mail = form.mail || {}
   const ruleErrors = validateRules(form.rules)
 
   useEffect(() => {
     window.bookingApi.hasSecret('githubToken').then(setHasGithubToken).catch(() => {})
+    window.bookingApi.hasSecret('imapPassword').then(setHasImapPassword).catch(() => {})
   }, [])
 
   function handleTheme(value) {
@@ -55,6 +64,7 @@ export default function SettingsPanel({ config, rows = [], onOpenImport, onOpenT
     setError('')
     try {
       if (githubToken.trim()) await window.bookingApi.setSecret('githubToken', githubToken.trim())
+      if (imapPassword.trim()) await window.bookingApi.setSecret('imapPassword', imapPassword.trim())
       await onSave(form)
       onClose()
     } catch (err) {
@@ -62,6 +72,40 @@ export default function SettingsPanel({ config, rows = [], onOpenImport, onOpenT
     } finally {
       setSaving(false)
     }
+  }
+
+  function setMail(patch) {
+    setForm(f => ({ ...f, mail: { ...f.mail, ...patch } }))
+  }
+
+  // Test connection has to run against what is on screen, so the password is
+  // written to the keychain and the settings persisted before we connect.
+  async function testMail() {
+    setTesting(true)
+    setMailTest('')
+    try {
+      if (imapPassword.trim()) {
+        await window.bookingApi.setSecret('imapPassword', imapPassword.trim())
+        setHasImapPassword(true)
+        setImapPassword('')
+      }
+      // Persist without the band-propagation prompts a full Save runs.
+      await onPersist(form)
+      const { mailboxes: boxes, suggestion } = await window.bookingApi.testMailConnection()
+      setMailboxes(boxes)
+      if (!form.mail?.draftsMailbox && suggestion) setMail({ draftsMailbox: suggestion })
+      setMailTest(`Connected — ${boxes.length} mailboxes. Drafts: ${form.mail?.draftsMailbox || suggestion}`)
+    } catch (e) {
+      setMailTest(e.message)
+    } finally {
+      setTesting(false)
+    }
+  }
+
+  async function forgetImapPassword() {
+    await window.bookingApi.deleteSecret('imapPassword')
+    setHasImapPassword(false)
+    setImapPassword('')
   }
 
   function setStorage(patch) {
@@ -329,6 +373,92 @@ export default function SettingsPanel({ config, rows = [], onOpenImport, onOpenT
                     the map in the Languages section; anything unlisted falls back to the default.
                     Templates live in the app's own folder, separate from your settings file.
                   </p>
+                </div>
+              )}
+
+              {section === 'mail' && (
+                <div className="space-y-4">
+                  <p className="text-xs text-gray-400 dark:text-gray-500">
+                    Drafts are placed straight into your Drafts mailbox over IMAP — nothing is ever sent.
+                    iCloud needs an <span className="font-medium">app-specific password</span>, not your
+                    Apple ID password.{' '}
+                    <button type="button" onClick={() => window.bookingApi.openExternal('https://appleid.apple.com')} className="underline hover:text-gray-600 dark:hover:text-gray-300">
+                      Create one at appleid.apple.com
+                    </button>
+                  </p>
+
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="col-span-2">
+                      <label className={lbl}>IMAP server</label>
+                      <input className={monoInput} value={mail.host || ''} placeholder="imap.mail.me.com"
+                        onChange={e => setMail({ host: e.target.value })} />
+                    </div>
+                    <div>
+                      <label className={lbl}>Port</label>
+                      <input className={monoInput} value={mail.port ?? 993}
+                        onChange={e => setMail({ port: parseInt(e.target.value, 10) || '' })} />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className={lbl}>Username (your full email address)</label>
+                    <input className={monoInput} value={mail.user || ''} placeholder="you@icloud.com"
+                      onChange={e => setMail({ user: e.target.value })} />
+                  </div>
+
+                  <div>
+                    <label className={lbl}>App-specific password</label>
+                    <input type="password" className={monoInput} value={imapPassword}
+                      onChange={e => setImapPassword(e.target.value)}
+                      placeholder={hasImapPassword ? '•••••••• (stored — type to replace)' : 'abcd-efgh-ijkl-mnop'} />
+                    <div className="mt-1 flex items-center justify-between gap-3">
+                      <p className="text-xs text-gray-400 dark:text-gray-500">Kept in your macOS keychain.</p>
+                      {hasImapPassword && (
+                        <button type="button" onClick={forgetImapPassword} className="shrink-0 text-xs text-gray-400 hover:text-red-600 dark:hover:text-red-400 underline">
+                          Forget password
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className={lbl}>From name</label>
+                      <input className={input} value={mail.fromName || ''} placeholder="Your name"
+                        onChange={e => setMail({ fromName: e.target.value })} />
+                    </div>
+                    <div>
+                      <label className={lbl}>From address</label>
+                      <input className={monoInput} value={mail.fromAddress || ''} placeholder="defaults to the username"
+                        onChange={e => setMail({ fromAddress: e.target.value })} />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className={lbl}>Drafts mailbox</label>
+                    {mailboxes.length > 0 ? (
+                      <select className={input} value={mail.draftsMailbox || ''} onChange={e => setMail({ draftsMailbox: e.target.value })}>
+                        {mailboxes.map(m => (
+                          <option key={m.path} value={m.path}>
+                            {m.path}{m.specialUse === '\\Drafts' ? '  (Drafts)' : ''}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input className={monoInput} value={mail.draftsMailbox || ''} placeholder="found automatically — or type a name"
+                        onChange={e => setMail({ draftsMailbox: e.target.value })} />
+                    )}
+                    <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
+                      Left blank, the app uses whichever mailbox your server marks as Drafts.
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <button type="button" onClick={testMail} disabled={testing} className={outlineBtn}>
+                      {testing ? 'Connecting…' : 'Test connection'}
+                    </button>
+                    {mailTest && <p className="text-xs text-gray-500 dark:text-gray-400 flex-1 min-w-0">{mailTest}</p>}
+                  </div>
                 </div>
               )}
 

@@ -26,6 +26,11 @@ describe('parseDate', () => {
     expect(ymd(parseDate('2025-03-15'))).toEqual([2025, 3, 15])
   })
 
+  it('reads a full ISO timestamp, keeping the time of day', () => {
+    const d = parseDate('2026-09-01T14:30:00.000Z')
+    expect(d.toISOString()).toBe('2026-09-01T14:30:00.000Z')
+  })
+
   it('returns null for junk and empties', () => {
     expect(parseDate('')).toBeNull()
     expect(parseDate('   ')).toBeNull()
