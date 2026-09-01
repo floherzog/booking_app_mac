@@ -1,0 +1,16 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`renderEmailHtml > snapshot: a full template body 1`] = `"<!doctype html><html><body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;font-size:14px;line-height:1.5;color:#111827"><p style="margin:0 0 12px 0">Hallo <strong>Anna</strong>!</p><p style="margin:0 0 12px 0">Mehr auf <a style="color:#4f46e5;text-decoration:underline" target="_blank" rel="noopener noreferrer nofollow" href="https://band.de">unserer Seite</a></p><img style="max-width:100%;height:auto;display:block" src="cid:asset-press.jpg" alt="Press"><div data-video-link="https://youtu.be/abc" data-thumb-asset="still.png" data-label="▶ Watch video"><a style="color:#4f46e5;text-decoration:underline" href="https://youtu.be/abc"><img style="max-width:100%;height:auto;display:block" src="cid:asset-still.png" alt="▶ Watch video"><span style="display:inline-block;margin-top:6px;color:#4f46e5;text-decoration:underline" class="booking-video-label">▶ Watch video</span></a></div></body></html>"`;
+
+exports[`renderEmailHtml > snapshot: a full template body 2`] = `
+[
+  {
+    "assetId": "press.jpg",
+    "cid": "asset-press.jpg",
+  },
+  {
+    "assetId": "still.png",
+    "cid": "asset-still.png",
+  },
+]
+`;

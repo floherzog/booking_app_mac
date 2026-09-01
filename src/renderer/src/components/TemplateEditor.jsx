@@ -1,0 +1,277 @@
+import { useState, useRef, useMemo, useEffect } from 'react'
+import { useEditor, EditorContent } from '@tiptap/react'
+import { EMAIL_EXTENSIONS, renderEmailHtml, EMAIL_BODY_STYLE } from '@core/emailHtml'
+import { PLACEHOLDERS, substituteTemplate, languageForRow } from '@core/templates'
+import { uploadAsset } from '../lib/templates'
+
+const LANGUAGE_HINT = 'Two-letter code, e.g. de or en. It must match one of the codes in Settings → Languages.'
+
+// Placeholders are inserted as literal {{text}} so they survive editing and are
+// substituted later, on the JSON, before the HTML is generated.
+function PlaceholderMenu({ onInsert, label = 'Insert field' }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        className="text-xs px-2 py-1 rounded border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:border-gray-400 dark:hover:border-gray-500 transition-colors"
+      >
+        {label} ▾
+      </button>
+      {open && (
+        <div className="absolute right-0 z-10 mt-1 w-40 rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg py-1">
+          {PLACEHOLDERS.map(p => (
+            <button
+              key={p}
+              type="button"
+              onMouseDown={e => { e.preventDefault(); onInsert(`{{${p}}}`); setOpen(false) }}
+              className="block w-full text-left px-3 py-1 text-xs font-mono text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
+            >
+              {`{{${p}}}`}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ToolbarButton({ active, disabled, onClick, title, children }) {
+  return (
+    <button
+      type="button"
+      title={title}
+      disabled={disabled}
+      onClick={onClick}
+      className={`px-2 py-1 rounded text-sm transition-colors disabled:opacity-40 ${active
+        ? 'bg-gray-800 text-white dark:bg-gray-200 dark:text-gray-900'
+        : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
+    >
+      {children}
+    </button>
+  )
+}
+
+export default function TemplateEditor({ template, bandOptions, languages, rows = [], onSave, onCancel }) {
+  const [band, setBand] = useState(template.band || bandOptions[0] || '')
+  const [language, setLanguage] = useState(template.language || languages.default || 'en')
+  const [subject, setSubject] = useState(template.subject || '')
+  const [previewIdx, setPreviewIdx] = useState('')
+  const [error, setError] = useState('')
+  const [saving, setSaving] = useState(false)
+  // Bumped on every editor transaction so the preview memo recomputes as you type.
+  const [docVersion, setDocVersion] = useState(0)
+  const subjectRef = useRef(null)
+  const fileRef = useRef(null)
+  const thumbRef = useRef(null)
+
+  const editor = useEditor({
+    extensions: EMAIL_EXTENSIONS,
+    content: template.bodyJSON || { type: 'doc', content: [{ type: 'paragraph' }] },
+    onUpdate: () => setDocVersion(v => v + 1),
+    editorProps: {
+      attributes: {
+        class: 'prose-sm max-w-none min-h-[16rem] px-3 py-2 focus:outline-none text-sm text-gray-800 dark:text-gray-100',
+      },
+    },
+  })
+
+  // Venues of this band make the most useful preview subjects.
+  const previewCandidates = useMemo(
+    () => rows.filter(r => r['Band'] === band && r['Venue']).slice(0, 200),
+    [rows, band],
+  )
+  useEffect(() => {
+    setPreviewIdx(prev => (previewCandidates.some(r => String(r._idx) === prev) ? prev : String(previewCandidates[0]?._idx ?? '')))
+  }, [previewCandidates])
+
+  const previewRow = previewCandidates.find(r => String(r._idx) === previewIdx) || null
+
+  // Live preview: substitute against a real venue, then render exactly the HTML
+  // the email will carry.
+  const preview = useMemo(() => {
+    if (!editor || !previewRow) return null
+    const substituted = substituteTemplate({ subject, bodyJSON: editor.getJSON() }, previewRow)
+    const { bodyHtml } = renderEmailHtml(substituted.bodyJSON)
+    return { ...substituted, bodyHtml }
+    // editor.getJSON() is not reactive on its own — docVersion is what makes
+    // this recompute as you type.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor, subject, previewRow, docVersion])
+
+  function insertIntoSubject(token) {
+    const el = subjectRef.current
+    if (!el) return setSubject(s => s + token)
+    const start = el.selectionStart ?? subject.length
+    const end = el.selectionEnd ?? subject.length
+    const next = subject.slice(0, start) + token + subject.slice(end)
+    setSubject(next)
+    requestAnimationFrame(() => {
+      el.focus()
+      el.setSelectionRange(start + token.length, start + token.length)
+    })
+  }
+
+  async function pickImage(e) {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    try {
+      const { url } = await uploadAsset(file)
+      editor.chain().focus().setImage({ src: url, alt: file.name }).run()
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  async function pickVideoThumb(e) {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    const url = window.prompt('Link the thumbnail should open (YouTube, Vimeo, …):', '')
+    if (!url) return
+    try {
+      const { assetId } = await uploadAsset(file)
+      editor.chain().focus().setVideoLink({ url, thumbAssetId: assetId, label: '▶ Watch video' }).run()
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  function addLink() {
+    const previous = editor.getAttributes('link').href || ''
+    const url = window.prompt('Link URL:', previous)
+    if (url === null) return
+    if (!url) return editor.chain().focus().unsetLink().run()
+    editor.chain().focus().extendMarkRange('link').setLink({ href: url }).run()
+  }
+
+  async function handleSave() {
+    if (!band.trim()) return setError('Choose a band for this template.')
+    if (!language.trim()) return setError('Give this template a language code.')
+    setSaving(true)
+    setError('')
+    try {
+      await onSave({
+        ...template,
+        band: band.trim(),
+        language: language.trim().toLowerCase(),
+        subject,
+        bodyJSON: editor.getJSON(),
+      })
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const input = 'block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 shadow-sm text-sm focus:border-indigo-500 focus:ring-indigo-500'
+  const lbl = 'block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1'
+
+  return (
+    <div className="flex flex-col h-full min-h-0">
+      <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4 space-y-4">
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className={lbl}>Band</label>
+            <select className={input} value={band} onChange={e => setBand(e.target.value)}>
+              <option value="">Choose a band…</option>
+              {bandOptions.map(b => <option key={b} value={b}>{b}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className={lbl}>Language</label>
+            <input className={input} value={language} placeholder="de" onChange={e => setLanguage(e.target.value)} />
+            <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">{LANGUAGE_HINT}</p>
+          </div>
+        </div>
+
+        <div>
+          <div className="flex items-end justify-between gap-2 mb-1">
+            <label className={`${lbl} mb-0`}>Subject</label>
+            <PlaceholderMenu onInsert={insertIntoSubject} />
+          </div>
+          <input ref={subjectRef} className={input} value={subject} onChange={e => setSubject(e.target.value)} placeholder="Booking-Anfrage {{venue}}" />
+        </div>
+
+        <div>
+          <label className={lbl}>Body</label>
+          <div className="rounded-md border border-gray-300 dark:border-gray-600 overflow-hidden">
+            <div className="flex flex-wrap items-center gap-0.5 px-1.5 py-1 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40">
+              <ToolbarButton title="Bold" active={editor?.isActive('bold')} onClick={() => editor.chain().focus().toggleBold().run()}><b>B</b></ToolbarButton>
+              <ToolbarButton title="Italic" active={editor?.isActive('italic')} onClick={() => editor.chain().focus().toggleItalic().run()}><i>I</i></ToolbarButton>
+              <ToolbarButton title="Underline" active={editor?.isActive('underline')} onClick={() => editor.chain().focus().toggleUnderline().run()}><u>U</u></ToolbarButton>
+              <span className="w-px h-4 bg-gray-200 dark:bg-gray-700 mx-1" />
+              <ToolbarButton title="Bullet list" active={editor?.isActive('bulletList')} onClick={() => editor.chain().focus().toggleBulletList().run()}>•</ToolbarButton>
+              <ToolbarButton title="Link" active={editor?.isActive('link')} onClick={addLink}>🔗</ToolbarButton>
+              <ToolbarButton title="Insert image" onClick={() => fileRef.current?.click()}>🖼</ToolbarButton>
+              <ToolbarButton title="Insert video link with thumbnail" onClick={() => thumbRef.current?.click()}>▶</ToolbarButton>
+              <span className="flex-1" />
+              <PlaceholderMenu onInsert={t => editor.chain().focus().insertContent(t).run()} />
+            </div>
+            <EditorContent editor={editor} />
+          </div>
+          <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={pickImage} />
+          <input ref={thumbRef} type="file" accept="image/*" className="hidden" onChange={pickVideoThumb} />
+        </div>
+
+        <div>
+          <div className="flex items-end justify-between gap-2 mb-1">
+            <label className={`${lbl} mb-0`}>Preview</label>
+            <select className="rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 text-xs focus:border-indigo-500 focus:ring-indigo-500"
+              value={previewIdx} onChange={e => setPreviewIdx(e.target.value)}>
+              {previewCandidates.length === 0 && <option value="">No venues for this band</option>}
+              {previewCandidates.map(r => (
+                <option key={r._idx} value={r._idx}>{r['Venue']}{r['City'] ? ` · ${r['City']}` : ''}</option>
+              ))}
+            </select>
+          </div>
+          {preview ? (
+            <div className="rounded-md border border-gray-200 dark:border-gray-700 overflow-hidden">
+              <div className="px-3 py-2 border-b border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40">
+                <p className="text-xs text-gray-400 dark:text-gray-500">
+                  To {previewRow['Email'] || '—'} · language{' '}
+                  <span className="font-mono">{languageForRow(previewRow, languages)}</span>
+                </p>
+                <p className="text-sm font-medium text-gray-800 dark:text-gray-100 mt-0.5">{preview.subject || <span className="italic text-gray-400">no subject</span>}</p>
+              </div>
+              {/* Rendered by the same function the email uses and wrapped in the
+                  email body style, so the preview is what the draft will contain. */}
+              <div
+                className="px-3 py-2 bg-white"
+                dangerouslySetInnerHTML={{ __html: `<div style="${EMAIL_BODY_STYLE}">${preview.bodyHtml}</div>` }}
+              />
+              {preview.empties.length > 0 && (
+                <p className="px-3 py-2 text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border-t border-amber-200 dark:border-amber-800">
+                  Empty for this venue: {preview.empties.map(e => `{{${e}}}`).join(', ')}
+                </p>
+              )}
+            </div>
+          ) : (
+            <p className="text-xs text-gray-400 dark:text-gray-500">
+              Pick a band that has venues in your list to see a live preview.
+            </p>
+          )}
+        </div>
+      </div>
+
+      <div className="px-6 py-4 border-t border-gray-100 dark:border-gray-700 flex items-center justify-between gap-3">
+        <p className="text-xs text-red-600 dark:text-red-400 min-h-[1rem]">{error}</p>
+        <div className="flex gap-3 shrink-0">
+          <button type="button" onClick={onCancel} className="text-sm text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200">Cancel</button>
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={saving}
+            className="bg-indigo-600 text-white text-sm font-medium px-4 py-2 rounded-md hover:bg-indigo-700 transition-colors disabled:opacity-50"
+          >
+            {saving ? 'Saving…' : 'Save template'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}

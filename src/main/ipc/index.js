@@ -4,6 +4,7 @@ import { setSecret, hasSecret, deleteSecret } from '../secrets.js'
 import { registerStorageIpc } from './storage.js'
 import { registerGithubIpc } from './github.js'
 import { registerGeocacheIpc } from './geocache.js'
+import { registerTemplatesIpc } from './templates.js'
 
 // Every renderer→main call goes through ipcMain.handle. The preload re-exposes
 // exactly this list as window.bookingApi.* — the renderer never sees ipcRenderer.
@@ -19,6 +20,7 @@ export function registerIpc() {
   registerStorageIpc()
   registerGithubIpc()
   registerGeocacheIpc()
+  registerTemplatesIpc()
 
   ipcMain.handle('app:openExternal', (_e, url) => shell.openExternal(url))
 }

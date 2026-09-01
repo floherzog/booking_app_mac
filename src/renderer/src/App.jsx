@@ -10,6 +10,7 @@ import { mergeRules } from '@core/rules'
 import { RulesProvider } from './lib/rulesContext'
 import { getAdapter, isStorageConfigured } from './lib/storageAdapters'
 import FirstRun from './components/FirstRun'
+import TemplatesManager from './components/TemplatesManager'
 import StatsBar from './components/StatsBar'
 import FilterBar from './components/FilterBar'
 import BookingTable from './components/BookingTable'
@@ -34,6 +35,7 @@ export default function App() {
   const [lastFetched, setLastFetched] = useState(null)
   const [showSettings, setShowSettings] = useState(false)
   const [showImport, setShowImport] = useState(false)
+  const [showTemplates, setShowTemplates] = useState(false)
   const [showSave, setShowSave] = useState(false)
   const [showLogic, setShowLogic] = useState(false)
   const [confirmDiscard, setConfirmDiscard] = useState(false)
@@ -551,7 +553,8 @@ export default function App() {
         />
       )}
 
-      {showSettings && <SettingsPanel config={settings} rows={rows} onOpenImport={() => { setShowSettings(false); setShowImport(true) }} onSave={handleSettingsSave} onClose={() => setShowSettings(false)} />}
+      {showSettings && <SettingsPanel config={settings} rows={rows} onOpenImport={() => { setShowSettings(false); setShowImport(true) }} onOpenTemplates={() => { setShowSettings(false); setShowTemplates(true) }} onSave={handleSettingsSave} onClose={() => setShowSettings(false)} />}
+      {showTemplates && <TemplatesManager settings={settings} rows={rows} onClose={() => setShowTemplates(false)} />}
       {showImport && <ImportWizard rows={rows} onImport={handleImport} onClose={() => setShowImport(false)} />}
       {showSave && <SaveModal rows={rows} edits={edits} deletions={deletions} additions={additions} adapter={adapter} onSuccess={handleSaveSuccess} onClose={() => setShowSave(false)} />}
       {mergeTarget && (

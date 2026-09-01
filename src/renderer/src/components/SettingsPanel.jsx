@@ -17,10 +17,11 @@ const SECTIONS = [
   { id: 'rules', label: 'Rules' },
   { id: 'bands', label: 'Bands' },
   { id: 'languages', label: 'Languages' },
+  { id: 'templates', label: 'Templates' },
   { id: 'data', label: 'Data' },
 ]
 
-export default function SettingsPanel({ config, rows = [], onOpenImport, onSave, onClose }) {
+export default function SettingsPanel({ config, rows = [], onOpenImport, onOpenTemplates, onSave, onClose }) {
   const [form, setForm] = useState(config)
   const [section, setSection] = useState('general')
   // Theme stays a per-Mac preference in localStorage (see the note in the
@@ -314,6 +315,19 @@ export default function SettingsPanel({ config, rows = [], onOpenImport, onSave,
                     also write them onto that band's venue rows (the <span className="font-mono">Dates</span> /
                     <span className="font-mono"> filler</span> columns). Renaming only changes this list — it
                     doesn't rewrite existing venues.
+                  </p>
+                </div>
+              )}
+
+              {section === 'templates' && (
+                <div>
+                  <button type="button" onClick={() => onOpenTemplates?.()} className={outlineBtn}>
+                    Manage email templates…
+                  </button>
+                  <p className="mt-2 text-xs text-gray-400 dark:text-gray-500">
+                    One template per band and language. A venue's Country picks the language through
+                    the map in the Languages section; anything unlisted falls back to the default.
+                    Templates live in the app's own folder, separate from your settings file.
                   </p>
                 </div>
               )}
