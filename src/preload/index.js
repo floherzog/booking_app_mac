@@ -26,6 +26,10 @@ const api = {
   githubFetchCsv: args => ipcRenderer.invoke('github:fetchCsv', args),
   githubPushCsv: args => ipcRenderer.invoke('github:pushCsv', args),
 
+  // Geocoding (Nominatim needs a User-Agent the renderer may not set)
+  geocode: (city, country) => ipcRenderer.invoke('geo:geocode', city, country),
+  geoCacheSnapshot: () => ipcRenderer.invoke('geo:cacheSnapshot'),
+
   openExternal: url => ipcRenderer.invoke('app:openExternal', url),
 }
 

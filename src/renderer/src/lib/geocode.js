@@ -1,14 +1,23 @@
-// Geocoding runs in the main process (Nominatim requires a custom User-Agent,
-// which the renderer's fetch is not allowed to set). Phase 3 wires this to the
-// geo:geocode / geo:cacheSnapshot IPC channels; until then it degrades to "no
-// coordinates yet", which the map handles.
+// Geocoding runs in the main process: Nominatim's usage policy wants a
+// descriptive User-Agent, and `User-Agent` is a forbidden header for the
+// renderer's fetch. Main also owns the cache file, the 1-req/sec throttle and
+// the bundled seed data — this module is just the bridge.
+
+// → { lat, lng } | null. Cached results (including "not found") return instantly.
 export async function geocodeCity(city, country) {
-  if (!window.bookingApi?.geocode) return null
-  return window.bookingApi.geocode(city, country)
+  try {
+    return await window.bookingApi.geocode(city, country)
+  } catch {
+    return null
+  }
 }
 
-// The bundled seed cache ({ "City||Country": { lat, lng } | null }).
+// The whole persisted cache ({ "City||Country": { lat, lng } | null }), seeded
+// from the app's bundled snapshot on first run.
 export async function loadSeedCache() {
-  if (!window.bookingApi?.geoCacheSnapshot) return {}
-  return window.bookingApi.geoCacheSnapshot()
+  try {
+    return await window.bookingApi.geoCacheSnapshot()
+  } catch {
+    return {}
+  }
 }
