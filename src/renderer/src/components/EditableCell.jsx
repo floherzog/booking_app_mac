@@ -1,0 +1,73 @@
+import { useState, useRef, useEffect } from 'react'
+import { parseDate, formatDateDDMMYY, toInputValue, fromInputValue } from '@core/parseDate'
+
+const MULTILINE_FIELDS = ['Note', 'Text', 'Time Frame']
+
+export default function EditableCell({ value, rowIndex, field, edits, onEdit, className = '', isDate = false }) {
+  const edited = edits[rowIndex]?.[field]
+  const rawValue = edited !== undefined ? edited : (value || '')
+  const isEdited = edited !== undefined
+  const [editing, setEditing] = useState(false)
+  const inputRef = useRef(null)
+
+  const displayValue = isDate
+    ? (formatDateDDMMYY(parseDate(rawValue)) || rawValue)
+    : rawValue
+
+  useEffect(() => {
+    if (editing && inputRef.current) inputRef.current.focus()
+  }, [editing])
+
+  function commitDate(e) {
+    setEditing(false)
+    const formatted = fromInputValue(e.target.value)
+    onEdit(rowIndex, field, formatted)
+  }
+
+  function commitText(val) {
+    setEditing(false)
+    onEdit(rowIndex, field, val)
+  }
+
+  function handleKey(e) {
+    if (e.key === 'Escape') setEditing(false)
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); commitText(e.target.value) }
+  }
+
+  const base = `min-h-[1.25rem] cursor-text rounded px-1 -mx-1 transition-colors ${className}`
+  const highlight = isEdited
+    ? 'bg-amber-50 ring-1 ring-amber-300 dark:bg-amber-900/20 dark:ring-amber-700'
+    : 'hover:bg-gray-100 dark:hover:bg-gray-700'
+
+  if (editing) {
+    if (isDate) {
+      return (
+        <input
+          ref={inputRef}
+          type="date"
+          defaultValue={toInputValue(rawValue)}
+          onBlur={commitDate}
+          className="rounded border border-indigo-400 dark:border-indigo-600 bg-white dark:bg-gray-700 dark:text-gray-100 px-1.5 py-0.5 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-300"
+        />
+      )
+    }
+    const sharedText = {
+      ref: inputRef,
+      defaultValue: rawValue,
+      onChange: e => onEdit(rowIndex, field, e.target.value),
+      onBlur: e => commitText(e.target.value),
+      onKeyDown: handleKey,
+      className: 'w-full rounded border border-indigo-400 dark:border-indigo-600 bg-white dark:bg-gray-700 dark:text-gray-100 px-1.5 py-0.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300',
+    }
+    if (MULTILINE_FIELDS.includes(field)) {
+      return <textarea {...sharedText} rows={3} style={{ resize: 'vertical' }} />
+    }
+    return <input type="text" {...sharedText} />
+  }
+
+  return (
+    <div className={`${base} ${highlight}`} onClick={e => { e.stopPropagation(); setEditing(true) }} title="Click to edit">
+      {displayValue || <span className="text-gray-300 dark:text-gray-600 text-xs">—</span>}
+    </div>
+  )
+}
