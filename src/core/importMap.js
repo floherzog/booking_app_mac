@@ -1,5 +1,5 @@
-import { normalizeRow } from './csv'
-import { APP_COLUMNS } from './constants'
+import { normalizeRow } from './csv.js'
+import { APP_COLUMNS } from './constants.js'
 
 // Extra header spellings a user's CSV might use, mapped to our canonical key.
 // Keys/values are compared in normalized form (lowercase, alphanumerics only).

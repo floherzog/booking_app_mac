@@ -1,4 +1,4 @@
-import { DEFAULT_RULES } from './rules'
+import { DEFAULT_RULES } from './rules.js'
 
 // Frequency column → re-contact window in days. Empty/unset falls back to the
 // configured default. Presets and custom values are stored as "N months"

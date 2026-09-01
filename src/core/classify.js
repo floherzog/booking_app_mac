@@ -1,7 +1,7 @@
 import { differenceInDays, addMonths, subMonths } from 'date-fns'
-import { STATUS, isSendBlocked, frequencyToDays } from './constants'
-import { DEFAULT_RULES } from './rules'
-import { parseDate, parseMonthsFromTimeFrame } from './parseDate'
+import { STATUS, isSendBlocked, frequencyToDays } from './constants.js'
+import { DEFAULT_RULES } from './rules.js'
+import { parseDate, parseMonthsFromTimeFrame } from './parseDate.js'
 
 function hasHoldKeyword(note, rules) {
   if (!note) return false

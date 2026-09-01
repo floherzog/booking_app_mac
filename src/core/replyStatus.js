@@ -1,4 +1,4 @@
-import { parseDate } from './parseDate'
+import { parseDate } from './parseDate.js'
 
 // The consolidated `Status` column tracks the venue's response. It is one of:
 //   ''                    → no response on record

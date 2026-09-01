@@ -1,7 +1,22 @@
 import { ipcMain, shell } from 'electron'
+import { readSettings, writeSettings } from '../settingsStore.js'
+import { setSecret, hasSecret, deleteSecret } from '../secrets.js'
+import { registerStorageIpc } from './storage.js'
+import { registerGithubIpc } from './github.js'
 
 // Every renderer→main call goes through ipcMain.handle. The preload re-exposes
 // exactly this list as window.bookingApi.* — the renderer never sees ipcRenderer.
 export function registerIpc() {
+  ipcMain.handle('settings:get', () => readSettings())
+  ipcMain.handle('settings:set', (_e, next) => writeSettings(next))
+
+  // Secrets only ever cross the bridge as commands and booleans, never values.
+  ipcMain.handle('secrets:set', (_e, key, value) => setSecret(key, value))
+  ipcMain.handle('secrets:has', (_e, key) => hasSecret(key))
+  ipcMain.handle('secrets:delete', (_e, key) => deleteSecret(key))
+
+  registerStorageIpc()
+  registerGithubIpc()
+
   ipcMain.handle('app:openExternal', (_e, url) => shell.openExternal(url))
 }

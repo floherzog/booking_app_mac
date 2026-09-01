@@ -10,6 +10,9 @@ function label(f) { return FIELD_LABELS[f] || f }
 export default function SaveModal({ rows, edits, deletions = new Set(), additions = new Set(), adapter, onSuccess, onClose }) {
   const [pushing, setPushing] = useState(false)
   const [error, setError] = useState('')
+  // Set when the underlying file changed since we loaded it — the user has to
+  // decide whether their edits win.
+  const [conflict, setConflict] = useState(false)
 
   const changes = []
   deletions.forEach(idx => {
@@ -30,7 +33,7 @@ export default function SaveModal({ rows, edits, deletions = new Set(), addition
   })
   changes.sort((a, b) => a.venue.localeCompare(b.venue) || a.field.localeCompare(b.field))
 
-  async function handlePush() {
+  async function handlePush(force = false) {
     setPushing(true)
     setError('')
     try {
@@ -41,10 +44,15 @@ export default function SaveModal({ rows, edits, deletions = new Set(), addition
           return { ...r, ...edits[r._idx] }
         })
       const date = new Date().toISOString().slice(0, 10)
-      await adapter.save(applied, `Update booking data (${date}) — ${changes.length} change${changes.length !== 1 ? 's' : ''}`)
+      await adapter.save(applied, `Update booking data (${date}) — ${changes.length} change${changes.length !== 1 ? 's' : ''}`, { force })
       onSuccess(applied)
     } catch (e) {
-      setError(e.message)
+      if (/CSV_CONFLICT/.test(e.message)) {
+        setConflict(true)
+        setError('')
+      } else {
+        setError(e.message)
+      }
     } finally {
       setPushing(false)
     }
@@ -95,6 +103,25 @@ export default function SaveModal({ rows, edits, deletions = new Set(), addition
               </tbody>
             </table>
           )}
+          {conflict && (
+            <div className="mt-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded p-3 space-y-2">
+              <p className="text-sm text-amber-800 dark:text-amber-300 font-medium">
+                The booking file changed since it was loaded.
+              </p>
+              <p className="text-xs text-amber-700 dark:text-amber-400">
+                Something else wrote to it — another Mac via iCloud, the web app, or the booking script.
+                Overwriting replaces those changes with what you see here. Cancelling lets you reload first
+                (your unsaved edits would be lost).
+              </p>
+              <button
+                onClick={() => handlePush(true)}
+                disabled={pushing}
+                className="bg-amber-600 text-white text-sm font-medium px-3 py-1.5 rounded-md hover:bg-amber-700 transition-colors disabled:opacity-50"
+              >
+                Overwrite anyway
+              </button>
+            </div>
+          )}
           {error && (
             <div className="mt-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded p-3 text-sm text-red-700 dark:text-red-400">{error}</div>
           )}
@@ -109,7 +136,7 @@ export default function SaveModal({ rows, edits, deletions = new Set(), addition
               Cancel
             </button>
             <button
-              onClick={handlePush}
+              onClick={() => handlePush()}
               disabled={pushing || changes.length === 0 || !adapter}
               className="bg-indigo-600 text-white text-sm font-medium px-5 py-2 rounded-md hover:bg-indigo-700 transition-colors disabled:opacity-50"
             >

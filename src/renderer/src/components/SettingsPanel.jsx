@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { saveConfig, DEFAULT_CONFIG } from '../lib/config'
+import { getAdapter } from '../lib/storageAdapters'
 import { getStoredTheme, setTheme } from '../lib/theme'
 import { exportCsv } from '../lib/csvFile'
 
@@ -15,26 +15,24 @@ export default function SettingsPanel({ config, rows = [], onOpenImport, onSave,
   const [newBand, setNewBand] = useState('')
 
   const bands = form.bands || []
+  const adapter = getAdapter(config)
 
   function handleTheme(value) {
     setThemeState(value)
     setTheme(value)
   }
 
+  // Persisting is App's job (one writer for settings.json) — this only reports
+  // the edited form back up.
   function handleSave(e) {
     e.preventDefault()
-    saveConfig(form)
     onSave(form)
     onClose()
   }
 
-  function handleReset() {
-    setForm({ ...DEFAULT_CONFIG })
-  }
-
   // --- Data / backup ---------------------------------------------------------
   function handleExport() {
-    exportCsv(rows)
+    exportCsv(rows).catch(() => { /* the user cancelled the save dialog */ })
   }
 
   // --- Band list -------------------------------------------------------------
@@ -71,6 +69,14 @@ export default function SettingsPanel({ config, rows = [], onOpenImport, onSave,
           <button onClick={onClose} className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 text-xl leading-none">&times;</button>
         </div>
         <form onSubmit={handleSave} className="space-y-4">
+          <div>
+            <p className={sectionLbl}>Storage</p>
+            <p className="text-sm text-gray-700 dark:text-gray-300">
+              {adapter.kind === 'github' ? 'GitHub' : 'Local CSV file'}
+            </p>
+            <p className="text-xs text-gray-400 dark:text-gray-500 break-all mt-0.5">{adapter.detail || adapter.label}</p>
+          </div>
+
           <div>
             <p className={sectionLbl}>Data / Backup</p>
             <div className="flex gap-2">
@@ -187,9 +193,7 @@ export default function SettingsPanel({ config, rows = [], onOpenImport, onSave,
           </div>
 
           <div className="flex items-center justify-between pt-2">
-            <button type="button" onClick={handleReset} className="text-sm text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 underline">
-              Reset to defaults
-            </button>
+            <span />
             <div className="flex gap-3">
               <button type="button" onClick={onClose} className="text-sm text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200">
                 Cancel

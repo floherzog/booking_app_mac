@@ -1,22 +1,12 @@
-// Renderer-side app config. Phase 2 moves this onto the main-process settings
-// store (settings:get/set); until then it is a local, machine-only stash with
-// no bundled credentials of any kind.
-const STORAGE_KEY = 'booking_app_config'
-
-export const DEFAULT_CONFIG = {
-  bands: [],
+// Thin async wrapper over the main-process settings store (settings:get/set).
+// There is no renderer-side default: main owns the shape and merges the rules,
+// so whatever comes back here is already complete.
+export function getSettings() {
+  return window.bookingApi.getSettings()
 }
 
-export function getConfig() {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY)
-    if (stored) return { ...DEFAULT_CONFIG, ...JSON.parse(stored) }
-  } catch {
-    // ignore
-  }
-  return { ...DEFAULT_CONFIG }
-}
-
-export function saveConfig(config) {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(config)) } catch { /* ignore */ }
+// Writes the whole settings object and returns what was actually persisted
+// (main re-applies its defaults/merges), so callers should use the return value.
+export function saveSettings(next) {
+  return window.bookingApi.setSettings(next)
 }

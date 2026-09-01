@@ -13,7 +13,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "check:drift": "node scripts/check-core-drift.mjs",
-    "dist": "npm run build && electron-builder --mac"
+    "dist": "npm run build && electron-builder --mac",
+    "verify:csv": "node scripts/verify-csv-roundtrip.mjs"
   },
   "dependencies": {
     "@tanstack/react-table": "^8.21.3",

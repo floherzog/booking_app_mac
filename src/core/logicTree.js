@@ -1,4 +1,4 @@
-import { DEFAULT_RULES } from './rules'
+import { DEFAULT_RULES } from './rules.js'
 
 // The decision tree LogicModal draws, built from the active rules instead of
 // hand-written prose. Mirrors classifyBooking() in classify.js, in evaluation

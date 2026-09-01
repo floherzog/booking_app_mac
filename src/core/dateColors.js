@@ -1,7 +1,7 @@
 import { differenceInDays } from 'date-fns'
-import { STATUS, frequencyToDays } from './constants'
-import { DEFAULT_RULES } from './rules'
-import { replyHealth } from './replyStatus'
+import { STATUS, frequencyToDays } from './constants.js'
+import { DEFAULT_RULES } from './rules.js'
+import { replyHealth } from './replyStatus.js'
 
 const GREEN = 'text-green-500'
 const YELLOW = 'text-yellow-500'

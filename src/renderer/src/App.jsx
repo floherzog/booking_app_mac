@@ -1,13 +1,15 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { classifyBooking } from '@core/classify'
-import { getConfig, saveConfig } from './lib/config'
+import { getSettings, saveSettings } from './lib/config'
 import { ACTION_STATUSES, getMissingFields, getMissingSeverity } from '@core/constants'
 import { effectiveBandOptions, bandsFromRows, normalizeBands } from '@core/bands'
 import { computeNextBatch } from '@core/nextBatch'
 import { replyHealth } from '@core/replyStatus'
 import { computeDuplicates, dismissPair } from '@core/duplicates'
-import { DEFAULT_RULES, mergeRules } from '@core/rules'
+import { mergeRules } from '@core/rules'
 import { RulesProvider } from './lib/rulesContext'
+import { getAdapter, isStorageConfigured } from './lib/storageAdapters'
+import FirstRun from './components/FirstRun'
 import StatsBar from './components/StatsBar'
 import FilterBar from './components/FilterBar'
 import BookingTable from './components/BookingTable'
@@ -23,14 +25,9 @@ import BulkEditBar from './components/BulkEditBar'
 const SEARCH_FIELDS = ['Venue', 'City', 'Country', 'Contact', 'Band', 'Email', 'Note', 'Status', 'Text', 'Time Frame', 'Dates']
 
 export default function App() {
-  // Migrate any legacy string-array `bands` in stored config to band objects.
-  const [config, setConfig] = useState(() => {
-    const c = getConfig()
-    return { ...c, bands: normalizeBands(c.bands) }
-  })
-  // Phase 2 loads these from the settings store; until then the defaults are
-  // the live rules.
-  const [rules, setRules] = useState(() => mergeRules(DEFAULT_RULES))
+  // The whole persisted config lives in the main process (userData/settings.json);
+  // null until the first settings:get resolves.
+  const [settings, setSettings] = useState(null)
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -51,31 +48,64 @@ export default function App() {
   const [view, setView] = useState('list')
   const [selectMode, setSelectMode] = useState(false)
   const [selected, setSelected] = useState(new Set()) // _idx of bulk-selected rows
+  // The adapter instance that actually performed the last load — it carries the
+  // mtime/sha conflict-guard token that Save needs.
+  const [adapter, setAdapter] = useState(null)
 
   const today = useMemo(() => new Date(), [])
+  const rules = useMemo(() => mergeRules(settings?.rules), [settings])
 
-  // Phase 2 swaps this for the configured storage adapter (local CSV file or
-  // GitHub). Until then the app boots with an empty table.
-  const load = useCallback(async () => {
+  // Single writer for the settings file: persist, then adopt whatever main
+  // actually stored (it re-applies defaults and merges the rules).
+  const persist = useCallback(async next => {
+    const saved = await saveSettings(next)
+    setSettings(saved)
+    return saved
+  }, [])
+
+  // Read the CSV through whichever adapter is configured, classify, and stage
+  // it. A not-yet-configured adapter simply yields an empty table (FirstRun is
+  // what the user sees in that case anyway).
+  const load = useCallback(async (settingsOverride) => {
+    const s = settingsOverride || settings
+    if (!s) return
+    const a = getAdapter(s)
+    setAdapter(a)
+    if (!a.configured) { setRows([]); return }
     setLoading(true)
     setError('')
     try {
-      setRows([])
+      const activeRules = mergeRules(s.rules)
+      const { rows: raw } = await a.load()
+      const classified = raw.map((r, i) => ({ ...r, _idx: i, _status: classifyBooking(r, today, activeRules) }))
+      const nextBatchSet = computeNextBatch(classified, today, activeRules)
+      setRows(classified.map(r => ({ ...r, _nextBatch: nextBatchSet.has(r._idx), _missingSeverity: getMissingSeverity(r) })))
       setEdits({})
+      setDeletions(new Set())
+      setAdditions(new Set())
       setLastFetched(new Date())
+      // One-time seed of the managed band list from bands already in the CSV.
+      if (!s.bands || s.bands.length === 0) {
+        const seeded = bandsFromRows(raw).map(name => ({ name, tourDates: '', bookFiller: false }))
+        if (seeded.length) await persist({ ...s, bands: seeded })
+      }
     } catch (e) {
       setError(e.message)
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [today, settings, persist])
 
   // Kick off the initial fetch once on mount. Fetching is a legitimate effect and the
   // setLoading/setRows calls inside load() are its whole purpose, so opt out of the
   // set-state-in-effect heuristic here (same rationale as the exhaustive-deps opt-out).
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    load()
+    getSettings().then(s => {
+      setSettings(s)
+      setDismissed(new Set(s.dismissedDupes || []))
+      load(s)
+    }).catch(e => setError(e.message))
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Reclassify in place whenever the rules change, so a rules edit shows up on
@@ -116,10 +146,10 @@ export default function App() {
     }
   }
 
-  function handleSettingsSave(newConfig) {
-    const cfg = { ...newConfig, bands: normalizeBands(newConfig.bands) }
-    propagateBandChanges(config.bands, cfg.bands)
-    setConfig(cfg)
+  async function handleSettingsSave(form) {
+    const bands = normalizeBands(form.bands)
+    propagateBandChanges(settings.bands, bands)
+    await persist({ ...settings, ...form, bands })
   }
 
   function handleEdit(rowIndex, field, value) {
@@ -127,7 +157,7 @@ export default function App() {
     // text (only when the band has one — never wipe an existing Dates value).
     let extra = null
     if (field === 'Band' && value) {
-      const band = (config.bands || []).find(b => b.name === value)
+      const band = (settings?.bands || []).find(b => b.name === value)
       if (band?.tourDates) extra = { field: 'Dates', value: band.tourDates }
     }
     setEdits(prev => {
@@ -250,11 +280,12 @@ export default function App() {
 
   const editCount = Object.values(edits).reduce((sum, f) => sum + Object.keys(f).length, 0) + deletions.size + additions.size
   const { dups: duplicateSet, partners: duplicatePartners } = useMemo(() => computeDuplicates(rows, dismissed), [rows, dismissed])
-  const bandOptions = useMemo(() => effectiveBandOptions(rows, config.bands), [rows, config.bands])
+  const bandOptions = useMemo(() => effectiveBandOptions(rows, settings?.bands), [rows, settings])
 
   function handleDismiss(r1, r2) {
     const next = dismissPair(dismissed, r1, r2)
     setDismissed(next)
+    persist({ ...settings, dismissedDupes: [...next] }).catch(() => {})
   }
 
   function handleOpenMerge(partner) {
@@ -307,6 +338,22 @@ export default function App() {
     : filters.missingInfo
       ? [{ id: '_missingSeverity', desc: true }]
       : [{ id: '_status', desc: false }]
+
+  // Settings haven't arrived yet — nothing sensible to draw.
+  if (!settings) return <div className="min-h-screen bg-gray-50 dark:bg-gray-900" />
+
+  // No storage configured yet: point the user at a CSV before anything else.
+  if (!isStorageConfigured(settings)) {
+    return (
+      <FirstRun
+        settings={settings}
+        onConfigured={async storage => {
+          const saved = await persist({ ...settings, storage: { ...settings.storage, ...storage } })
+          await load(saved)
+        }}
+      />
+    )
+  }
 
   const iconBtn = 'text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors disabled:opacity-40'
   const viewToggleActive = 'bg-gray-800 text-white dark:bg-gray-200 dark:text-gray-900'
@@ -501,9 +548,9 @@ export default function App() {
         />
       )}
 
-      {showSettings && <SettingsPanel config={config} rows={rows} onOpenImport={() => { setShowSettings(false); setShowImport(true) }} onSave={handleSettingsSave} onClose={() => setShowSettings(false)} />}
+      {showSettings && <SettingsPanel config={settings} rows={rows} onOpenImport={() => { setShowSettings(false); setShowImport(true) }} onSave={handleSettingsSave} onClose={() => setShowSettings(false)} />}
       {showImport && <ImportWizard rows={rows} onImport={handleImport} onClose={() => setShowImport(false)} />}
-      {showSave && <SaveModal rows={rows} edits={edits} deletions={deletions} additions={additions} adapter={null} onSuccess={handleSaveSuccess} onClose={() => setShowSave(false)} />}
+      {showSave && <SaveModal rows={rows} edits={edits} deletions={deletions} additions={additions} adapter={adapter} onSuccess={handleSaveSuccess} onClose={() => setShowSave(false)} />}
       {mergeTarget && (
         <MergeModal
           rowA={mergeTarget.rowA}

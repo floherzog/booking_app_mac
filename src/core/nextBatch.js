@@ -1,5 +1,5 @@
-import { ACTION_STATUSES } from './constants'
-import { DEFAULT_RULES } from './rules'
+import { ACTION_STATUSES } from './constants.js'
+import { DEFAULT_RULES } from './rules.js'
 
 // The next batch is simply the first N rows whose classified status is
 // actionable (see classifyBooking / ACTION_STATUSES). Deriving it from the
