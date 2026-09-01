@@ -1,0 +1,50 @@
+appId: com.floherzog.booking
+productName: Booking
+copyright: Copyright © 2026 floherzog
+
+artifactName: ${productName}-${version}-${arch}.${ext}
+
+directories:
+  output: release
+  buildResources: resources
+
+# The renderer is bundled by Vite, so only out/ plus the main process's runtime
+# dependencies (date-fns, papaparse, imapflow, nodemailer) need to ship.
+files:
+  - out/**
+  - package.json
+  - '!**/*.map'
+
+# Lands at Contents/Resources/geo_cache.json, which is exactly what
+# src/main/ipc/geocache.js reads via process.resourcesPath when packaged.
+extraResources:
+  - from: resources/geo_cache.json
+    to: geo_cache.json
+
+mac:
+  category: public.app-category.productivity
+  icon: resources/icon.icns
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+    - target: zip
+      arch: [arm64]
+  # Signing is driven entirely by the environment, never by this file:
+  #   npm run dist         → CSC_IDENTITY_AUTO_DISCOVERY=false, unsigned
+  #   npm run dist:signed  → uses CSC_LINK / APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD
+  #                          / APPLE_TEAM_ID from the environment
+  # Changing the signing identity invalidates safeStorage secrets, so users have
+  # to re-enter their token and mail password. See the README.
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: resources/entitlements.mac.plist
+  entitlementsInherit: resources/entitlements.mac.plist
+  extendInfo:
+    # Shown in the macOS permission prompts the AppleScript fallback triggers.
+    NSAppleEventsUsageDescription: Booking needs permission to control Mail so it can open a pre-filled draft for you.
+
+dmg:
+  title: ${productName}
+
+# Nothing here auto-updates; distribution is a file you hand someone.
+publish: null

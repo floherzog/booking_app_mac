@@ -1,5 +1,6 @@
 {
   "name": "booking_app_mac",
+  "productName": "Booking",
   "version": "0.1.0",
   "description": "Booking outreach manager for macOS",
   "private": true,
@@ -13,22 +14,19 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "check:drift": "node scripts/check-core-drift.mjs",
-    "dist": "npm run build && electron-builder --mac",
-    "verify:csv": "node scripts/verify-csv-roundtrip.mjs"
+    "dist": "npm run build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac",
+    "verify:csv": "node scripts/verify-csv-roundtrip.mjs",
+    "dist:signed": "npm run build && electron-builder --mac"
   },
   "dependencies": {
-    "@tanstack/react-table": "^8.21.3",
     "date-fns": "^4.3.0",
     "imapflow": "^1.7.7",
-    "leaflet": "^1.9.4",
     "nodemailer": "^9.1.0",
-    "papaparse": "^5.5.3",
-    "react": "^19.2.6",
-    "react-dom": "^19.2.6",
-    "react-leaflet": "^5.0.0"
+    "papaparse": "^5.5.3"
   },
   "devDependencies": {
     "@tailwindcss/forms": "^0.5.11",
+    "@tanstack/react-table": "^8.21.3",
     "@tiptap/extension-image": "^3.31.0",
     "@tiptap/extension-link": "^3.31.0",
     "@tiptap/extension-underline": "^3.31.0",
@@ -41,7 +39,11 @@
     "electron-builder": "^26.15.3",
     "electron-vite": "^4.0.1",
     "happy-dom": "^20.12.0",
+    "leaflet": "^1.9.4",
     "postcss": "^8.5.15",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "react-leaflet": "^5.0.0",
     "tailwindcss": "^3.4.19",
     "vite": "^7.1.0",
     "vitest": "^4.1.11"

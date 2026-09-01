@@ -29,7 +29,7 @@ npm install
 npm run dev      # run the app with hot reload
 npm run test     # unit tests
 npm run build    # compile main, preload and renderer into out/
-npm run dist     # build a distributable .app, .dmg and .zip into release/
+npm run dist     # build unsigned .dmg (arm64 + Intel) and .zip into release/
 ```
 
 Other scripts:
@@ -175,9 +175,16 @@ tab order — adjust `TABS_TO_BODY` in `src/main/jxa/createMailDraft.js`.
 
 ## Installing an unsigned build
 
-By default `npm run dist` produces an **unsigned** app, so macOS Gatekeeper will
-refuse to open it on the first try. The **zip is the smoothest route** — DMGs
-attract an extra layer of quarantine warnings.
+`npm run dist` produces three files in `release/`:
+
+| File | For |
+| --- | --- |
+| `Booking-<version>-arm64.zip` | Apple Silicon — **the smoothest route** |
+| `Booking-<version>-arm64.dmg` | Apple Silicon |
+| `Booking-<version>-x64.dmg` | Intel |
+
+They are **unsigned**, so macOS Gatekeeper will refuse to open the app on the
+first try. Prefer the zip: a DMG adds a second layer of quarantine warnings.
 
 Pick whichever you prefer:
 
@@ -234,6 +241,19 @@ It has no platform imports and is covered by unit tests.
 Anything privileged runs in main and is reached over a fixed list of IPC
 channels. Secrets never cross that bridge; geocoding lives there because
 Nominatim requires a `User-Agent` header the renderer is not allowed to set.
+
+### Notes for whoever builds this next
+
+- `productName` in `package.json` is what Electron uses for `app.getName()`,
+  and therefore for the `Application Support/Booking/` directory. It is not
+  redundant with the one in `electron-builder.yml` — remove it and the app
+  silently starts storing its data under `booking_app_mac`.
+- `resources/icon.icns` was generated from the web app's 192px PNG with
+  `sips` + `iconutil`, so the larger sizes are upscaled. Replace it with a
+  proper 1024px source when there is one.
+- Only `date-fns`, `papaparse`, `imapflow` and `nodemailer` are runtime
+  `dependencies` — everything the renderer uses is bundled by Vite, and
+  listing it as a dependency would only copy it into the .app for nothing.
 
 ### Where this is heading
 
