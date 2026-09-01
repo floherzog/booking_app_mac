@@ -6,8 +6,9 @@ import { DEFAULT_RULES } from './rules.js'
 // status on the "yes" branch; otherwise the trunk continues to the next gate
 // ("no"). Some gates open a small sub-decision before reaching an outcome.
 export function buildLogicNodes(rules = DEFAULT_RULES) {
-  const keywordPreview = rules.holdKeywords.slice(0, 14).join(' · ')
-  const more = rules.holdKeywords.length > 14 ? ' · …' : ''
+  // The full list, not a preview: a keyword you added yourself must be visible
+  // here, and the modal scrolls anyway.
+  const keywordList = rules.holdKeywords.join(' · ')
 
   return [
     { col: 'Type', q: 'Type is "dead"', yes: 'DEAD' },
@@ -21,7 +22,7 @@ export function buildLogicNodes(rules = DEFAULT_RULES) {
     },
     {
       col: 'Note', q: 'Note contains a hold keyword',
-      note: keywordPreview + more,
+      note: keywordList,
       sub: {
         q: `Last emailed ≥ ${rules.holdOverrideDays} days ago?`,
         yes: { fall: 'hold expired — keep going' },

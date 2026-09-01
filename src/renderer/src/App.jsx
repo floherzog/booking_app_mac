@@ -149,7 +149,10 @@ export default function App() {
   async function handleSettingsSave(form) {
     const bands = normalizeBands(form.bands)
     propagateBandChanges(settings.bands, bands)
-    await persist({ ...settings, ...form, bands })
+    const saved = await persist({ ...settings, ...form, bands })
+    // A rules change reclassifies through the effect below; a storage change
+    // means the venues themselves come from somewhere else now, so refetch.
+    if (JSON.stringify(saved.storage) !== JSON.stringify(settings.storage)) await load(saved)
   }
 
   function handleEdit(rowIndex, field, value) {
