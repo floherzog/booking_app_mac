@@ -5,6 +5,12 @@ copyright: Copyright © 2026 floherzog
 artifactName: ${productName}-${version}-${arch}.${ext}
 
 directories:
+  # Overridden by the dist scripts to ~/Builds/booking_app_mac. That matters:
+  # this repo lives in iCloud Drive, which stamps every directory it syncs with
+  # com.apple.FinderInfo and com.apple.fileprovider.* extended attributes, and
+  # codesign refuses to sign a bundle carrying them ("resource fork, Finder
+  # information, or similar detritus not allowed") — re-adding them faster than
+  # `xattr -c` can strip them. Building outside iCloud avoids the race entirely.
   output: release
   buildResources: resources
 

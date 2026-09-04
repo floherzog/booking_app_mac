@@ -34,7 +34,16 @@ git commit -am "Release 0.2.0"
 npm test && npm run build && npm run dist
 ```
 
-This produces, in `release/`:
+Artifacts land **outside the repo**, in `~/Builds/booking_app_mac/` — this repo
+lives in iCloud Drive, whose extended attributes make `codesign` refuse to sign
+the bundle (see the comment in `electron-builder.yml`). The rest of this file
+assumes:
+
+```sh
+export BUILD=~/Builds/booking_app_mac
+```
+
+This produces, in `$BUILD`:
 
 - `Booking-0.2.0-arm64.dmg` — Apple Silicon
 - `Booking-0.2.0-x64.dmg` — Intel
@@ -47,13 +56,13 @@ signature at all is rejected outright by macOS once it carries a quarantine
 flag; `scripts/adhoc-sign.cjs` prevents that, and this verifies it worked.
 
 ```sh
-codesign -dv --verbose=4 "release/mac-arm64/Booking.app" 2>&1 | grep Signature
+codesign -dv --verbose=4 "$BUILD/mac-arm64/Booking.app" 2>&1 | grep Signature
 #   expect: Signature=adhoc
 
-codesign --verify --deep --strict "release/mac-arm64/Booking.app"
+codesign --verify --deep --strict "$BUILD/mac-arm64/Booking.app"
 #   expect: no output
 
-spctl -a -vv "release/mac-arm64/Booking.app"
+spctl -a -vv "$BUILD/mac-arm64/Booking.app"
 #   expect: "rejected (the code is valid but does not seem to be an app)" or
 #   "source=no usable signature" — an unnotarised app is *supposed* to fail this.
 ```
@@ -63,7 +72,7 @@ recipient sees without involving a second Mac:
 
 ```sh
 rm -rf /tmp/Booking.app
-cp -R "release/mac-arm64/Booking.app" /tmp/Booking.app
+cp -R "$BUILD/mac-arm64/Booking.app" /tmp/Booking.app
 xattr -w com.apple.quarantine "0081;00000000;Safari;" /tmp/Booking.app
 open /tmp/Booking.app
 ```
@@ -77,9 +86,9 @@ verify…" dialog, which right-click → Open gets past.
 git tag v0.2.0 && git push --tags
 
 gh release create v0.2.0 \
-  release/Booking-0.2.0-arm64.dmg \
-  release/Booking-0.2.0-x64.dmg \
-  release/Booking-0.2.0-arm64.zip \
+  "$BUILD"/Booking-0.2.0-arm64.dmg \
+  "$BUILD"/Booking-0.2.0-x64.dmg \
+  "$BUILD"/Booking-0.2.0-arm64.zip \
   --title "Booking 0.2.0" \
   --notes "$(cat <<'EOF'
 What changed…

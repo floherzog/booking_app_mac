@@ -29,7 +29,8 @@ npm install
 npm run dev      # run the app with hot reload
 npm run test     # unit tests
 npm run build    # compile main, preload and renderer into out/
-npm run dist     # build unsigned .dmg (arm64 + Intel) and .zip into release/
+npm run dist     # build ad-hoc signed .dmg (arm64 + Intel) and .zip
+                 # into ~/Builds/booking_app_mac (outside iCloud — see below)
 ```
 
 Other scripts:
@@ -173,9 +174,12 @@ Because it drives Mail's window by keystroke, it is offered for one draft only.
 If the body text lands in the subject field, your compose window has a different
 tab order — adjust `TABS_TO_BODY` in `src/main/jxa/createMailDraft.js`.
 
-## Installing an unsigned build
+## Installing a shared build
 
-`npm run dist` produces three files in `release/`:
+`npm run dist` produces three files in **`~/Builds/booking_app_mac/`**. They are
+built outside the repo on purpose: this project lives in iCloud Drive, and the
+extended attributes iCloud stamps on every synced directory make `codesign`
+refuse to sign the bundle at all.
 
 | File | For |
 | --- | --- |

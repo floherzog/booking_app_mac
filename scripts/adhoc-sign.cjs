@@ -29,6 +29,12 @@ exports.default = async function adhocSign(context) {
 
   const entitlements = join(__dirname, '..', 'resources', 'entitlements.mac.plist')
 
+  // This repo lives in iCloud Drive, which decorates files with extended
+  // attributes. codesign refuses to sign a bundle carrying them
+  // ("resource fork, Finder information, or similar detritus not allowed"), so
+  // strip them first.
+  execFileSync('xattr', ['-cr', appPath], { stdio: 'inherit' })
+
   execFileSync('codesign', [
     '--force',
     '--deep',

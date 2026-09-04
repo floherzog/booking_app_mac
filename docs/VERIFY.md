@@ -136,13 +136,16 @@ above all others:
 
 ## Packaged build
 
+Artifacts land in `~/Builds/booking_app_mac/`, not in the repo — see
+`electron-builder.yml` for why. `export BUILD=~/Builds/booking_app_mac` first.
+
 - [ ] `npm run dist` — the build log shows `adhoc-sign  ad-hoc signature applied`.
-- [ ] `codesign -dv --verbose=4 release/mac-arm64/Booking.app` reports
+- [ ] `codesign -dv --verbose=4 "$BUILD/mac-arm64/Booking.app"` reports
       `Signature=adhoc`, and `codesign --verify --deep --strict` is silent.
 - [ ] Fake a download locally and confirm it does **not** say "damaged":
 
       ```sh
-      rm -rf /tmp/Booking.app && cp -R release/mac-arm64/Booking.app /tmp/
+      rm -rf /tmp/Booking.app && cp -R "$BUILD/mac-arm64/Booking.app" /tmp/
       xattr -w com.apple.quarantine "0081;00000000;Safari;" /tmp/Booking.app
       open /tmp/Booking.app
       ```
