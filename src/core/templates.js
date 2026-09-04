@@ -27,6 +27,13 @@ export const DEFAULT_TEMPLATE_OPTIONS = {
     en: '{{venue}} team',
     de: '{{venue}} Team',
   },
+  // How a video is inserted. Both are applied at insert time — the badge is
+  // drawn into the saved image, and the label choice is stored on the node — so
+  // changing either never rewrites videos that are already in a template.
+  video: {
+    showLabel: true,               // the "▶ Title" text link under the thumbnail
+    playOverlay: true,             // a play button drawn onto the thumbnail
+  },
 }
 
 function norm(s) {

@@ -186,6 +186,10 @@ export default function SettingsPanel({ config, rows = [], onOpenImport, onOpenT
     setForm(f => ({ ...f, templates: { ...(f.templates || {}), ...patch } }))
   }
 
+  function setVideoOpt(patch) {
+    setTemplateOpt({ video: { ...(templateOpts.video || {}), ...patch } })
+  }
+
   function setContactFallback(lang, value) {
     setTemplateOpt({ contactFallbacks: { ...(templateOpts.contactFallbacks || {}), [lang]: value } })
   }
@@ -518,6 +522,41 @@ export default function SettingsPanel({ config, rows = [], onOpenImport, onOpenT
                         </label>
                       ))}
                     </div>
+                  </div>
+
+                  <div className="pt-4 border-t border-gray-100 dark:border-gray-700">
+                    <p className={lbl}>Video links</p>
+                    <div className="space-y-1.5">
+                      {[
+                        {
+                          key: 'showLabel',
+                          label: 'Text link under the thumbnail',
+                          hint: 'The “▶ Video title” line. Turn this off for a bare thumbnail.',
+                        },
+                        {
+                          key: 'playOverlay',
+                          label: 'Play button on the thumbnail',
+                          hint: 'Drawn into the image — mail clients cannot position an overlay reliably.',
+                        },
+                      ].map(o => (
+                        <label key={o.key} className="flex items-start gap-2.5 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            className="mt-0.5 h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-400"
+                            checked={(templateOpts.video || {})[o.key] !== false}
+                            onChange={e => setVideoOpt({ [o.key]: e.target.checked })}
+                          />
+                          <span className="min-w-0">
+                            <span className="block text-sm text-gray-800 dark:text-gray-200">{o.label}</span>
+                            <span className="block text-xs text-gray-400 dark:text-gray-500">{o.hint}</span>
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                    <p className="mt-2 text-xs text-gray-400 dark:text-gray-500">
+                      Both are applied when you insert a video, so changing them here affects the next
+                      video you add — videos already in a template keep the look they were inserted with.
+                    </p>
                   </div>
 
                   <div className="pt-4 border-t border-gray-100 dark:border-gray-700">

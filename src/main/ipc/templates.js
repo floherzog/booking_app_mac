@@ -91,9 +91,11 @@ export function youtubeId(url) {
   return null
 }
 
-// Downloads a YouTube thumbnail into the asset store and returns it like any
-// other inline image, so the cid: rewriting in renderEmailHtml already covers it.
-// Runs in main on purpose: the renderer's CSP forbids remote fetches.
+// Downloads a YouTube thumbnail and hands the raw bytes back. It is deliberately
+// NOT saved here: the renderer may still draw a play badge onto it, and saving
+// both versions would leave an orphan in the asset store. The renderer uploads
+// the final image through templates:saveAsset like any other inline picture.
+// The download runs in main because the renderer's CSP forbids remote fetches.
 export async function fetchVideoThumb(url, fetchImpl = fetch) {
   const id = youtubeId(url)
   if (!id) throw new Error('Only YouTube links are supported right now.')
@@ -117,12 +119,10 @@ export async function fetchVideoThumb(url, fetchImpl = fetch) {
   }
   if (!bytes) throw new Error('Could not download a thumbnail for that video.')
 
-  const assetId = `${randomUUID()}.jpg`
-  mkdirSync(assetsDir(), { recursive: true })
-  atomicWrite(join(assetsDir(), assetId), bytes)
   return {
-    assetId,
-    url: `booking-asset://${assetId}`,
+    // A plain array survives the structured clone across the IPC bridge.
+    data: new Uint8Array(bytes),
+    mime: 'image/jpeg',
     videoUrl: `https://www.youtube.com/watch?v=${id}`,
     title,
   }

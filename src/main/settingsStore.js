@@ -72,6 +72,10 @@ function withDefaults(stored) {
         ...DEFAULT_TEMPLATE_OPTIONS.contactFallbacks,
         ...(isPlainObject(s.templates?.contactFallbacks) ? s.templates.contactFallbacks : {}),
       },
+      video: {
+        ...DEFAULT_TEMPLATE_OPTIONS.video,
+        ...(isPlainObject(s.templates?.video) ? s.templates.video : {}),
+      },
     },
     languages: {
       default: s.languages?.default || DEFAULT_SETTINGS.languages.default,

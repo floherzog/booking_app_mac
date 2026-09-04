@@ -3,6 +3,7 @@ import { useEditor, EditorContent } from '@tiptap/react'
 import { EMAIL_EXTENSIONS, renderEmailHtml, EMAIL_BODY_STYLE } from '@core/emailHtml'
 import { PLACEHOLDERS, substituteTemplate, languageForRow, contactOptionsFor } from '@core/templates'
 import { uploadAsset, fetchVideoThumb } from '../lib/templates'
+import { buildThumbFile } from '../lib/videoThumb'
 import { useInlinePrompt } from './InlinePrompt'
 
 const LANGUAGE_HINT = 'Two-letter code, e.g. de or en. It must match one of the codes in Settings → Languages.'
@@ -63,6 +64,8 @@ export default function TemplateEditor({ template, bandOptions, languages, setti
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const [busy, setBusy] = useState('')
+  // Applied when a video is inserted, not when it is rendered — see videoLink.js.
+  const video = settings?.templates?.video || {}
   // Bumped on every editor transaction so the preview memo recomputes as you type.
   const [docVersion, setDocVersion] = useState(0)
   const subjectRef = useRef(null)
@@ -154,11 +157,16 @@ export default function TemplateEditor({ template, bandOptions, languages, setti
     setError('')
     setBusy('video')
     try {
-      const { assetId, videoUrl, title } = await fetchVideoThumb(url)
+      const { data, mime, videoUrl, title } = await fetchVideoThumb(url)
+      // The play badge is drawn into the image here, before it is stored, so
+      // what the asset store holds is exactly what the email carries.
+      const file = await buildThumbFile({ data, mime, playOverlay: video.playOverlay !== false })
+      const { assetId } = await uploadAsset(file)
       editor.chain().focus().setVideoLink({
         url: videoUrl || url,
         thumbAssetId: assetId,
         label: title ? `▶ ${title}` : '▶ Watch video',
+        showLabel: video.showLabel !== false,
       }).run()
     } catch (err) {
       setError(err.message)

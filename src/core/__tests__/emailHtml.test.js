@@ -98,6 +98,22 @@ describe('renderEmailHtml', () => {
     expect(cids).toEqual([{ cid: 'asset-thumb.jpg', assetId: 'thumb.jpg' }])
   })
 
+  it('omits the text link when the video was inserted without one', () => {
+    const { html } = renderEmailHtml(doc(
+      { type: 'videoLink', attrs: { url: 'https://youtu.be/x', thumbAssetId: 'thumb.jpg', showLabel: false } },
+    ))
+    expect(html).toContain('src="cid:asset-thumb.jpg"')
+    expect(html).not.toContain('booking-video-label')
+  })
+
+  it('keeps the text link when there is no thumbnail to click', () => {
+    // Otherwise the link would have nothing inside it at all.
+    const { html } = renderEmailHtml(doc(
+      { type: 'videoLink', attrs: { url: 'https://youtu.be/x', thumbAssetId: '', showLabel: false } },
+    ))
+    expect(html).toContain('booking-video-label')
+  })
+
   it('renders a videoLink without a thumbnail as a plain link', () => {
     const { html, cids } = renderEmailHtml(doc(
       { type: 'videoLink', attrs: { url: 'https://vimeo.com/12345', thumbAssetId: '' } },

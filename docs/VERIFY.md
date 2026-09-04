@@ -120,6 +120,15 @@ above all others:
 - [ ] ▶ asks for a YouTube URL, fetches the thumbnail, and inserts it at roughly
       the size Apple Mail gives its own link previews. A Vimeo URL is refused
       with a readable message.
+- [ ] Settings ▸ Templates ▸ Video links — with both options on, an inserted
+      video shows a centred play button on the thumbnail *and* the "▶ Title"
+      line under it.
+- [ ] Turn off **Text link under the thumbnail**, insert another video: bare
+      thumbnail, no text line — and the video inserted before it still has its
+      line (the choice is stored per video, not applied at render time).
+- [ ] Turn off **Play button**, insert a third: no badge drawn into the image.
+- [ ] The badge is baked into the saved asset, so it must still be there when
+      the draft is opened in Mail, even with remote images blocked.
 - [ ] The thumbnail arrives in the actual draft as an inline image (not a broken
       remote one) — see VERIFY-MAIL.md.
 

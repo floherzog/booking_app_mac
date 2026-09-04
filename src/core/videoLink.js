@@ -36,6 +36,14 @@ export const VideoLink = Node.create({
         parseHTML: el => el.getAttribute('data-label') || DEFAULT_LABEL,
         renderHTML: attrs => ({ 'data-label': attrs.label || DEFAULT_LABEL }),
       },
+      // Whether the "▶ Title" text link is shown under the thumbnail. Stored per
+      // node rather than read from settings at render time, so flipping the
+      // preference never rewrites videos already sitting in a template.
+      showLabel: {
+        default: true,
+        parseHTML: el => el.getAttribute('data-show-label') !== 'false',
+        renderHTML: attrs => (attrs.showLabel === false ? { 'data-show-label': 'false' } : {}),
+      },
       // Displayed thumbnail width in px — matched to Apple Mail's own link
       // previews so a template looks the same as the rest of a conversation.
       width: {
@@ -64,7 +72,11 @@ export const VideoLink = Node.create({
       // matching inline style from it, so image styling stays in one place.
       linkChildren.push(['img', { src: `booking-asset://${thumb}`, alt: label, width: String(width) }])
     }
-    linkChildren.push(['span', { class: 'booking-video-label' }, label])
+    // Without a thumbnail the label is the only thing left to click, so it is
+    // shown regardless of the preference.
+    if (node.attrs.showLabel !== false || !thumb) {
+      linkChildren.push(['span', { class: 'booking-video-label' }, label])
+    }
 
     return ['div', mergeAttributes(HTMLAttributes), ['a', { href: url }, ...linkChildren]]
   },
