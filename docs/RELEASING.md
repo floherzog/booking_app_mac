@@ -1,0 +1,98 @@
+# Releasing
+
+The app does not update itself. **Booking → Check for Updates…** asks GitHub for
+the latest release of `floherzog/booking_app_mac`, compares its tag with the
+running version, and offers to open the download page. So "shipping an update"
+means: bump the version, build, and publish a GitHub release whose tag is that
+version.
+
+The repo is public, so the update check needs no token.
+
+## 1. Commit and push
+
+Everything the release contains has to be on `main` first:
+
+```sh
+git status --short          # clean
+git push
+```
+
+## 2. Bump the version
+
+`package.json` → `"version"`. The tag you publish must match it, or the update
+check will compare the wrong things. Nothing else needs touching:
+`app.getVersion()` reads this field, and `electron-builder.yml`'s
+`artifactName` interpolates it.
+
+```sh
+git commit -am "Release 0.2.0"
+```
+
+## 3. Build
+
+```sh
+npm test && npm run build && npm run dist
+```
+
+This produces, in `release/`:
+
+- `Booking-0.2.0-arm64.dmg` — Apple Silicon
+- `Booking-0.2.0-x64.dmg` — Intel
+- `Booking-0.2.0-arm64.zip`
+
+## 4. Check the signature before anyone else does
+
+This is the step that prevents the "file is damaged" report. A build with no
+signature at all is rejected outright by macOS once it carries a quarantine
+flag; `scripts/adhoc-sign.cjs` prevents that, and this verifies it worked.
+
+```sh
+codesign -dv --verbose=4 "release/mac-arm64/Booking.app" 2>&1 | grep Signature
+#   expect: Signature=adhoc
+
+codesign --verify --deep --strict "release/mac-arm64/Booking.app"
+#   expect: no output
+
+spctl -a -vv "release/mac-arm64/Booking.app"
+#   expect: "rejected (the code is valid but does not seem to be an app)" or
+#   "source=no usable signature" — an unnotarised app is *supposed* to fail this.
+```
+
+Then simulate the hand-off locally, which is the only way to see what the
+recipient sees without involving a second Mac:
+
+```sh
+rm -rf /tmp/Booking.app
+cp -R "release/mac-arm64/Booking.app" /tmp/Booking.app
+xattr -w com.apple.quarantine "0081;00000000;Safari;" /tmp/Booking.app
+open /tmp/Booking.app
+```
+
+It must **not** say "damaged". The expected result is the "Apple could not
+verify…" dialog, which right-click → Open gets past.
+
+## 5. Publish
+
+```sh
+git tag v0.2.0 && git push --tags
+
+gh release create v0.2.0 \
+  release/Booking-0.2.0-arm64.dmg \
+  release/Booking-0.2.0-x64.dmg \
+  release/Booking-0.2.0-arm64.zip \
+  --title "Booking 0.2.0" \
+  --notes "$(cat <<'EOF'
+What changed…
+
+**Installing:** download the arm64 .dmg (Apple Silicon) or the x64 .dmg (Intel),
+drag Booking into Applications, replacing the old copy. The first launch needs a
+**right-click → Open** — the app is signed ad-hoc, not notarised. On macOS 15 and
+later you may instead need *System Settings → Privacy & Security → Open Anyway*.
+EOF
+)"
+```
+
+## 6. Confirm the update path
+
+From the *previously installed* copy of the app, use **Check for Updates…**. It
+should report the new version and open the release page.

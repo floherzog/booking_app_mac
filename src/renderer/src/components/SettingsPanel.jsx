@@ -16,6 +16,7 @@ const SECTIONS = [
   { id: 'storage', label: 'Storage' },
   { id: 'rules', label: 'Rules' },
   { id: 'bands', label: 'Bands' },
+  { id: 'venueTypes', label: 'Venue types' },
   { id: 'languages', label: 'Languages' },
   { id: 'templates', label: 'Templates' },
   { id: 'mail', label: 'Mail' },
@@ -29,6 +30,9 @@ export default function SettingsPanel({ config, rows = [], onOpenImport, onOpenT
   // General section) and applies immediately rather than on Save.
   const [theme, setThemeState] = useState(getStoredTheme)
   const [newBand, setNewBand] = useState('')
+  const [newType, setNewType] = useState('')
+  const [version, setVersion] = useState('')
+  const [updateState, setUpdateState] = useState(null) // { checking } | result
   const [githubToken, setGithubToken] = useState('')
   const [hasGithubToken, setHasGithubToken] = useState(false)
   const [imapPassword, setImapPassword] = useState('')
@@ -41,6 +45,8 @@ export default function SettingsPanel({ config, rows = [], onOpenImport, onOpenT
   const [saving, setSaving] = useState(false)
 
   const bands = form.bands || []
+  const venueTypes = form.venueTypes || []
+  const templateOpts = form.templates || {}
   const storage = form.storage || {}
   const mail = form.mail || {}
   const ruleErrors = validateRules(form.rules)
@@ -48,7 +54,19 @@ export default function SettingsPanel({ config, rows = [], onOpenImport, onOpenT
   useEffect(() => {
     window.bookingApi.hasSecret('githubToken').then(setHasGithubToken).catch(() => {})
     window.bookingApi.hasSecret('imapPassword').then(setHasImapPassword).catch(() => {})
+    window.bookingApi.getAppVersion().then(setVersion).catch(() => {})
   }, [])
+
+  // The same check the "Check for Updates…" menu item runs; nothing installs
+  // itself, the download is a normal .dmg you replace the app with.
+  async function checkUpdates() {
+    setUpdateState({ checking: true })
+    try {
+      setUpdateState(await window.bookingApi.checkForUpdates())
+    } catch (e) {
+      setUpdateState({ error: e.message })
+    }
+  }
 
   function handleTheme(value) {
     setThemeState(value)
@@ -149,6 +167,29 @@ export default function SettingsPanel({ config, rows = [], onOpenImport, onOpenT
     setBands(bands.filter((_, idx) => idx !== i))
   }
 
+  // --- Venue types -----------------------------------------------------------
+  // A flat list of strings. Removing one never rewrites any venue: a row keeps
+  // whatever it says, and the dropdown keeps offering that value (see
+  // effectiveTypeOptions).
+  function setVenueTypes(next) {
+    setForm(f => ({ ...f, venueTypes: next }))
+  }
+
+  function addVenueType() {
+    const name = newType.trim()
+    if (!name || venueTypes.some(t => t.toLowerCase() === name.toLowerCase())) { setNewType(''); return }
+    setVenueTypes([...venueTypes, name])
+    setNewType('')
+  }
+
+  function setTemplateOpt(patch) {
+    setForm(f => ({ ...f, templates: { ...(f.templates || {}), ...patch } }))
+  }
+
+  function setContactFallback(lang, value) {
+    setTemplateOpt({ contactFallbacks: { ...(templateOpts.contactFallbacks || {}), [lang]: value } })
+  }
+
   const input = 'block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 shadow-sm text-sm focus:border-indigo-500 focus:ring-indigo-500'
   const monoInput = `${input} font-mono`
   const lbl = 'block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1'
@@ -209,6 +250,85 @@ export default function SettingsPanel({ config, rows = [], onOpenImport, onOpenT
                       file you might sync between machines.
                     </p>
                   </div>
+
+                  <div className="pt-3 border-t border-gray-100 dark:border-gray-700">
+                    <p className={lbl}>Version</p>
+                    <div className="flex items-center gap-3">
+                      <span className="text-sm text-gray-800 dark:text-gray-200 font-mono">{version || '…'}</span>
+                      <button type="button" onClick={checkUpdates} disabled={updateState?.checking} className={outlineBtn}>
+                        {updateState?.checking ? 'Checking…' : 'Check for updates'}
+                      </button>
+                    </div>
+                    {updateState && !updateState.checking && (
+                      <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                        {updateState.error ? updateState.error
+                          : updateState.newer ? (
+                            <>
+                              Version <span className="font-mono">{updateState.latest}</span> is available.{' '}
+                              <button
+                                type="button"
+                                onClick={() => window.bookingApi.openExternal(updateState.url)}
+                                className="text-indigo-600 dark:text-indigo-400 hover:underline"
+                              >
+                                Download it
+                              </button>
+                              , then drag it into Applications over the old copy.
+                            </>
+                          ) : 'You are running the latest published version.'}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {section === 'venueTypes' && (
+                <div className="space-y-4">
+                  <p className="text-xs text-gray-400 dark:text-gray-500">
+                    The values offered in a venue’s Type dropdown. Only{' '}
+                    <span className="font-mono">festival</span> and <span className="font-mono">dead</span> change
+                    anything — a festival is only shown when its booking window is open, and a dead venue is
+                    excluded from all outreach. Everything else is just a label.
+                  </p>
+
+                  {venueTypes.length === 0 && (
+                    <p className="text-sm text-gray-400 dark:text-gray-500">No types yet.</p>
+                  )}
+
+                  <div className="space-y-2">
+                    {venueTypes.map((t, i) => (
+                      <div key={`${t}-${i}`} className="flex items-center gap-2">
+                        <input
+                          className={input}
+                          value={t}
+                          onChange={e => setVenueTypes(venueTypes.map((x, idx) => (idx === i ? e.target.value : x)))}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setVenueTypes(venueTypes.filter((_, idx) => idx !== i))}
+                          title="Remove from the dropdown (venues keep their value)"
+                          className="text-gray-400 dark:text-gray-500 hover:text-red-600 dark:hover:text-red-400 px-2 text-lg leading-none"
+                        >
+                          &times;
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="flex items-center gap-2 pt-1">
+                    <input
+                      className={input}
+                      value={newType}
+                      placeholder="Add a type…"
+                      onChange={e => setNewType(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addVenueType() } }}
+                    />
+                    <button type="button" onClick={addVenueType} className={outlineBtn}>Add</button>
+                  </div>
+
+                  <p className="text-xs text-gray-400 dark:text-gray-500">
+                    Removing a type here never changes a venue — rows keep what they say, and their value stays
+                    selectable in the dropdown.
+                  </p>
                 </div>
               )}
 
@@ -364,15 +484,71 @@ export default function SettingsPanel({ config, rows = [], onOpenImport, onOpenT
               )}
 
               {section === 'templates' && (
-                <div>
-                  <button type="button" onClick={() => onOpenTemplates?.()} className={outlineBtn}>
-                    Manage email templates…
-                  </button>
-                  <p className="mt-2 text-xs text-gray-400 dark:text-gray-500">
-                    One template per band and language. A venue's Country picks the language through
-                    the map in the Languages section; anything unlisted falls back to the default.
-                    Templates live in the app's own folder, separate from your settings file.
-                  </p>
+                <div className="space-y-5">
+                  <div>
+                    <button type="button" onClick={() => onOpenTemplates?.()} className={outlineBtn}>
+                      Manage email templates…
+                    </button>
+                    <p className="mt-2 text-xs text-gray-400 dark:text-gray-500">
+                      One template per band and language. A venue's Country picks the language through
+                      the map in the Languages section; anything unlisted falls back to the default.
+                      Templates live in the app's own folder, separate from your settings file.
+                    </p>
+                  </div>
+
+                  <div className="pt-4 border-t border-gray-100 dark:border-gray-700">
+                    <p className={lbl}>What <span className="font-mono">{'{{contact}}'}</span> inserts</p>
+                    <div className="space-y-1.5">
+                      {[
+                        { value: 'full', label: 'Full name', hint: '“Anna Müller” → Anna Müller' },
+                        { value: 'first', label: 'First name only', hint: '“Anna Müller” → Anna' },
+                      ].map(o => (
+                        <label key={o.value} className="flex items-start gap-2.5 cursor-pointer">
+                          <input
+                            type="radio"
+                            name="contact-style"
+                            className="mt-0.5 h-4 w-4 border-gray-300 text-indigo-600 focus:ring-indigo-400"
+                            checked={(templateOpts.contactStyle || 'full') === o.value}
+                            onChange={() => setTemplateOpt({ contactStyle: o.value })}
+                          />
+                          <span className="min-w-0">
+                            <span className="block text-sm text-gray-800 dark:text-gray-200">{o.label}</span>
+                            <span className="block text-xs text-gray-400 dark:text-gray-500">{o.hint}</span>
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="pt-4 border-t border-gray-100 dark:border-gray-700">
+                    <p className={lbl}>When a venue has no contact name</p>
+                    <p className="mb-2 text-xs text-gray-400 dark:text-gray-500">
+                      Used instead of an empty <span className="font-mono">{'{{contact}}'}</span>, per language.
+                      It can itself contain placeholders — <span className="font-mono">{'{{venue}} Team'}</span> becomes
+                      “Kulturzentrum Team”.
+                    </p>
+                    <div className="space-y-2">
+                      {[...new Set([
+                        form.languages?.default || 'en',
+                        ...Object.values(form.languages?.map || {}),
+                        ...Object.keys(templateOpts.contactFallbacks || {}),
+                      ].map(l => String(l).trim().toLowerCase()).filter(Boolean))].sort().map(lang => (
+                        <div key={lang} className="flex items-center gap-2">
+                          <span className="w-10 shrink-0 text-xs font-mono text-gray-500 dark:text-gray-400">{lang}</span>
+                          <input
+                            className={input}
+                            value={templateOpts.contactFallbacks?.[lang] ?? ''}
+                            placeholder="{{venue}} team"
+                            onChange={e => setContactFallback(lang, e.target.value)}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                    <p className="mt-2 text-xs text-gray-400 dark:text-gray-500">
+                      Leave one empty to keep the old behaviour for that language: the placeholder resolves to
+                      nothing and the venue is flagged in the draft preflight.
+                    </p>
+                  </div>
                 </div>
               )}
 

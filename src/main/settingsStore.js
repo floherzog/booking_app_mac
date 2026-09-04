@@ -3,6 +3,8 @@ import { join, dirname } from 'node:path'
 import { app } from 'electron'
 import { mergeRules, DEFAULT_RULES } from '../core/rules.js'
 import { normalizeBands } from '../core/bands.js'
+import { normalizeVenueTypes, DEFAULT_VENUE_TYPES } from '../core/venueTypes.js'
+import { DEFAULT_TEMPLATE_OPTIONS } from '../core/templates.js'
 
 // Plain JSON in userData. Small, human-readable, and easy to back up — the CSV
 // remains the only file that matters for the venue data itself.
@@ -14,6 +16,8 @@ export const DEFAULT_SETTINGS = {
   },
   rules: DEFAULT_RULES,
   bands: [],
+  venueTypes: DEFAULT_VENUE_TYPES,
+  templates: DEFAULT_TEMPLATE_OPTIONS,
   languages: {
     default: 'en',
     map: {
@@ -56,6 +60,19 @@ function withDefaults(stored) {
     },
     rules: mergeRules(s.rules),
     bands: normalizeBands(s.bands),
+    // An empty/absent list means "never configured" → fall back to the defaults,
+    // so an older settings.json still offers main/festival/dead.
+    venueTypes: normalizeVenueTypes(s.venueTypes).length
+      ? normalizeVenueTypes(s.venueTypes)
+      : [...DEFAULT_VENUE_TYPES],
+    templates: {
+      ...DEFAULT_TEMPLATE_OPTIONS,
+      ...(s.templates || {}),
+      contactFallbacks: {
+        ...DEFAULT_TEMPLATE_OPTIONS.contactFallbacks,
+        ...(isPlainObject(s.templates?.contactFallbacks) ? s.templates.contactFallbacks : {}),
+      },
+    },
     languages: {
       default: s.languages?.default || DEFAULT_SETTINGS.languages.default,
       map: isPlainObject(s.languages?.map) ? s.languages.map : { ...DEFAULT_SETTINGS.languages.map },

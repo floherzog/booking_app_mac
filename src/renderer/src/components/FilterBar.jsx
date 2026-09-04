@@ -9,12 +9,15 @@ const FilterIcon = (
   </svg>
 )
 
-export default function FilterBar({ rows, filters, onChange, onNewVenue, bandOptions }) {
+export default function FilterBar({ rows, filters, onChange, onNewVenue, bandOptions, typeOptions }) {
   const [, startTransition] = useTransition()
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const bands     = bandOptions ?? []
   const countries = useMemo(() => [...new Set(rows.map(r => r['Country']).filter(Boolean))].sort(), [rows])
-  const types     = useMemo(() => [...new Set(rows.map(r => r['Type']).filter(Boolean))].sort(), [rows])
+  // The managed list ∪ what's in the rows, so a freshly added type is filterable
+  // before any venue uses it. (The memo runs unconditionally — hook order.)
+  const rowTypes  = useMemo(() => [...new Set(rows.map(r => r['Type']).filter(Boolean))].sort(), [rows])
+  const types     = typeOptions ?? rowTypes
 
   const advCount = (filters.advanced || []).filter(r => r.field && r.value).length + (filters.sort?.field ? 1 : 0)
   const hasFilters = filters.band || filters.country || filters.type || filters.actionOnly || filters.nextBatch || filters.missingInfo || filters.duplicate || filters.autoSend || filters.search || advCount > 0

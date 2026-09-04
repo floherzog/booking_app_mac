@@ -1,7 +1,8 @@
 import { join } from 'node:path'
-import { app, shell, BrowserWindow, Menu, protocol, net } from 'electron'
+import { app, shell, dialog, BrowserWindow, Menu, protocol, net } from 'electron'
 import { pathToFileURL } from 'node:url'
 import { registerIpc } from './ipc/index.js'
+import { checkForUpdates } from './ipc/updates.js'
 
 const isDev = !app.isPackaged
 
@@ -27,12 +28,63 @@ function registerAssetProtocol() {
   })
 }
 
+// Menu items act on whichever window is in front; the menu is built once, before
+// any window exists, so the lookup has to happen at click time.
+function currentWindow() {
+  return BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0] || null
+}
+
+function sendToRenderer(channel) {
+  currentWindow()?.webContents.send(channel)
+}
+
+// "Check for Updates…" — nothing installs itself; we compare against the latest
+// GitHub release and hand the user the download page.
+async function promptForUpdate() {
+  const parent = currentWindow()
+  const result = await checkForUpdates({ currentVersion: app.getVersion() })
+
+  if (result.error) {
+    await dialog.showMessageBox(parent, {
+      type: 'info',
+      message: 'Could not check for updates',
+      detail: result.error,
+      buttons: ['OK'],
+    })
+    return
+  }
+
+  if (!result.newer) {
+    await dialog.showMessageBox(parent, {
+      type: 'info',
+      message: `Booking ${result.current} is up to date.`,
+      detail: `The latest published release is ${result.latest}.`,
+      buttons: ['OK'],
+    })
+    return
+  }
+
+  const { response } = await dialog.showMessageBox(parent, {
+    type: 'info',
+    message: `Booking ${result.latest} is available.`,
+    detail: `You are running ${result.current}.\n\nDownload the .dmg, drag it to Applications and replace the old copy. The first launch needs a right-click → Open.${result.notes ? `\n\n${String(result.notes).slice(0, 600)}` : ''}`,
+    buttons: ['Download', 'Later'],
+    defaultId: 0,
+    cancelId: 1,
+  })
+  if (response === 0) shell.openExternal(result.url)
+}
+
 function buildMenu() {
   const template = [
     {
       label: app.name,
       submenu: [
         { role: 'about' },
+        { type: 'separator' },
+        { label: 'Check for Updates…', click: () => { promptForUpdate() } },
+        { type: 'separator' },
+        { label: 'Settings…', accelerator: 'CmdOrCtrl+,', click: () => sendToRenderer('menu:openSettings') },
         { type: 'separator' },
         { role: 'services' },
         { type: 'separator' },
@@ -43,21 +95,16 @@ function buildMenu() {
         { role: 'quit' },
       ],
     },
-    // Required: without a real Edit menu ⌘C/⌘V/⌘Z do nothing in the renderer.
     {
-      label: 'Edit',
+      label: 'File',
       submenu: [
-        { role: 'undo' },
-        { role: 'redo' },
+        { label: 'Email Templates…', accelerator: 'CmdOrCtrl+T', click: () => sendToRenderer('menu:openTemplates') },
         { type: 'separator' },
-        { role: 'cut' },
-        { role: 'copy' },
-        { role: 'paste' },
-        { role: 'pasteAndMatchStyle' },
-        { role: 'delete' },
-        { role: 'selectAll' },
+        { role: 'close' },
       ],
     },
+    // Required: without a real Edit menu ⌘C/⌘V/⌘Z do nothing in the renderer.
+    { role: 'editMenu' },
     {
       label: 'View',
       submenu: [
@@ -72,7 +119,7 @@ function buildMenu() {
         { role: 'togglefullscreen' },
       ],
     },
-    { label: 'Window', submenu: [{ role: 'minimize' }, { role: 'zoom' }, { role: 'front' }] },
+    { role: 'windowMenu' },
   ]
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
 }
@@ -85,7 +132,15 @@ function createWindow() {
     minHeight: 600,
     show: false,
     title: 'Booking',
-    titleBarStyle: 'hiddenInset',
+    // A standard title bar, on purpose. With `hiddenInset` the only draggable
+    // area is the thin strip the renderer happens to leave free, and every
+    // `fixed inset-0` modal covers it — the window then reads as immovable.
+    titleBarStyle: 'default',
+    resizable: true,
+    movable: true,
+    minimizable: true,
+    maximizable: true,
+    fullscreenable: true,
     backgroundColor: '#f9fafb',
     webPreferences: {
       preload: join(import.meta.dirname, '../preload/index.cjs'),

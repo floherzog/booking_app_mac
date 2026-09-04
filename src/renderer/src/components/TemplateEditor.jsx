@@ -1,8 +1,9 @@
 import { useState, useRef, useMemo, useEffect } from 'react'
 import { useEditor, EditorContent } from '@tiptap/react'
 import { EMAIL_EXTENSIONS, renderEmailHtml, EMAIL_BODY_STYLE } from '@core/emailHtml'
-import { PLACEHOLDERS, substituteTemplate, languageForRow } from '@core/templates'
-import { uploadAsset } from '../lib/templates'
+import { PLACEHOLDERS, substituteTemplate, languageForRow, contactOptionsFor } from '@core/templates'
+import { uploadAsset, fetchVideoThumb } from '../lib/templates'
+import { useInlinePrompt } from './InlinePrompt'
 
 const LANGUAGE_HINT = 'Two-letter code, e.g. de or en. It must match one of the codes in Settings → Languages.'
 
@@ -54,18 +55,19 @@ function ToolbarButton({ active, disabled, onClick, title, children }) {
   )
 }
 
-export default function TemplateEditor({ template, bandOptions, languages, rows = [], onSave, onCancel }) {
+export default function TemplateEditor({ template, bandOptions, languages, settings, rows = [], onSave, onCancel }) {
   const [band, setBand] = useState(template.band || bandOptions[0] || '')
   const [language, setLanguage] = useState(template.language || languages.default || 'en')
   const [subject, setSubject] = useState(template.subject || '')
   const [previewIdx, setPreviewIdx] = useState('')
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
+  const [busy, setBusy] = useState('')
   // Bumped on every editor transaction so the preview memo recomputes as you type.
   const [docVersion, setDocVersion] = useState(0)
   const subjectRef = useRef(null)
   const fileRef = useRef(null)
-  const thumbRef = useRef(null)
+  const [promptNode, ask] = useInlinePrompt()
 
   const editor = useEditor({
     extensions: EMAIL_EXTENSIONS,
@@ -73,7 +75,19 @@ export default function TemplateEditor({ template, bandOptions, languages, rows 
     onUpdate: () => setDocVersion(v => v + 1),
     editorProps: {
       attributes: {
-        class: 'prose-sm max-w-none min-h-[16rem] px-3 py-2 focus:outline-none text-sm text-gray-800 dark:text-gray-100',
+        // `booking-prose` (index.css) mirrors the email's own spacing, so what
+        // you type here is laid out the way the draft will be.
+        class: 'booking-prose max-w-none min-h-[16rem] px-3 py-2 focus:outline-none text-sm text-gray-800 dark:text-gray-100',
+      },
+      handleKeyDown: (_view, event) => {
+        // ⌘K is the usual "add link" shortcut and works with a selection made by
+        // keyboard, which the toolbar button cannot capture.
+        if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+          event.preventDefault()
+          addLink()
+          return true
+        }
+        return false
       },
     },
   })
@@ -93,13 +107,14 @@ export default function TemplateEditor({ template, bandOptions, languages, rows 
   // the email will carry.
   const preview = useMemo(() => {
     if (!editor || !previewRow) return null
-    const substituted = substituteTemplate({ subject, bodyJSON: editor.getJSON() }, previewRow)
+    const opts = contactOptionsFor(previewRow, settings)
+    const substituted = substituteTemplate({ subject, bodyJSON: editor.getJSON() }, previewRow, opts)
     const { bodyHtml } = renderEmailHtml(substituted.bodyJSON)
     return { ...substituted, bodyHtml }
     // editor.getJSON() is not reactive on its own — docVersion is what makes
     // this recompute as you type.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editor, subject, previewRow, docVersion])
+  }, [editor, subject, previewRow, docVersion, settings])
 
   function insertIntoSubject(token) {
     const el = subjectRef.current
@@ -126,27 +141,59 @@ export default function TemplateEditor({ template, bandOptions, languages, rows 
     }
   }
 
-  async function pickVideoThumb(e) {
-    const file = e.target.files?.[0]
-    e.target.value = ''
-    if (!file) return
-    const url = window.prompt('Link the thumbnail should open (YouTube, Vimeo, …):', '')
+  // Paste a YouTube URL; the thumbnail is downloaded in the main process and
+  // stored as an ordinary inline asset, so it travels in the mail as a cid: image.
+  async function insertVideo() {
+    const url = await ask({
+      label: 'YouTube video URL',
+      placeholder: 'https://www.youtube.com/watch?v=…',
+      hint: 'The thumbnail is downloaded and embedded automatically. YouTube links only for now.',
+      confirmLabel: 'Insert',
+    })
     if (!url) return
+    setError('')
+    setBusy('video')
     try {
-      const { assetId } = await uploadAsset(file)
-      editor.chain().focus().setVideoLink({ url, thumbAssetId: assetId, label: '▶ Watch video' }).run()
+      const { assetId, videoUrl, title } = await fetchVideoThumb(url)
+      editor.chain().focus().setVideoLink({
+        url: videoUrl || url,
+        thumbAssetId: assetId,
+        label: title ? `▶ ${title}` : '▶ Watch video',
+      }).run()
     } catch (err) {
       setError(err.message)
+    } finally {
+      setBusy('')
     }
   }
 
-  function addLink() {
-    const previous = editor.getAttributes('link').href || ''
-    const url = window.prompt('Link URL:', previous)
-    if (url === null) return
-    if (!url) return editor.chain().focus().unsetLink().run()
-    editor.chain().focus().extendMarkRange('link').setLink({ href: url }).run()
+  // A bare "example.com" is what people actually type; without a scheme the mail
+  // client resolves it against the message and the link goes nowhere.
+  function normalizeUrl(url) {
+    const value = url.trim()
+    if (!value) return ''
+    if (/^([a-z][a-z0-9+.-]*:|#|\/)/i.test(value)) return value
+    if (value.includes('@') && !value.includes('/')) return `mailto:${value}`
+    return `https://${value}`
   }
+
+  async function addLink() {
+    const previous = editor.getAttributes('link').href || ''
+    const url = await ask({
+      label: previous ? 'Edit link' : 'Link URL',
+      initial: previous,
+      placeholder: 'https://…',
+      hint: 'Leave empty to remove the link.',
+      confirmLabel: previous ? 'Update' : 'Add link',
+    })
+    if (url === null) return
+    if (!url.trim()) return editor.chain().focus().unsetLink().run()
+    editor.chain().focus().extendMarkRange('link').setLink({ href: normalizeUrl(url) }).run()
+  }
+
+  // A link mark needs text to sit on: with an empty selection outside an existing
+  // link there is nothing to attach it to, so the button would silently do nothing.
+  const canLink = !!editor && (editor.isActive('link') || !editor.state.selection.empty)
 
   async function handleSave() {
     if (!band.trim()) return setError('Choose a band for this template.')
@@ -173,6 +220,7 @@ export default function TemplateEditor({ template, bandOptions, languages, rows 
 
   return (
     <div className="flex flex-col h-full min-h-0">
+      {promptNode}
       <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4 space-y-4">
         <div className="grid grid-cols-2 gap-3">
           <div>
@@ -205,17 +253,24 @@ export default function TemplateEditor({ template, bandOptions, languages, rows 
               <ToolbarButton title="Italic" active={editor?.isActive('italic')} onClick={() => editor.chain().focus().toggleItalic().run()}><i>I</i></ToolbarButton>
               <ToolbarButton title="Underline" active={editor?.isActive('underline')} onClick={() => editor.chain().focus().toggleUnderline().run()}><u>U</u></ToolbarButton>
               <span className="w-px h-4 bg-gray-200 dark:bg-gray-700 mx-1" />
-              <ToolbarButton title="Bullet list" active={editor?.isActive('bulletList')} onClick={() => editor.chain().focus().toggleBulletList().run()}>•</ToolbarButton>
-              <ToolbarButton title="Link" active={editor?.isActive('link')} onClick={addLink}>🔗</ToolbarButton>
+              <ToolbarButton
+                title={canLink ? 'Link (⌘K)' : 'Select some text first, then add a link'}
+                active={editor?.isActive('link')}
+                disabled={!canLink}
+                onClick={addLink}
+              >🔗</ToolbarButton>
               <ToolbarButton title="Insert image" onClick={() => fileRef.current?.click()}>🖼</ToolbarButton>
-              <ToolbarButton title="Insert video link with thumbnail" onClick={() => thumbRef.current?.click()}>▶</ToolbarButton>
+              <ToolbarButton
+                title="Insert a YouTube video as a clickable thumbnail"
+                disabled={busy === 'video'}
+                onClick={insertVideo}
+              >{busy === 'video' ? '…' : '▶'}</ToolbarButton>
               <span className="flex-1" />
               <PlaceholderMenu onInsert={t => editor.chain().focus().insertContent(t).run()} />
             </div>
             <EditorContent editor={editor} />
           </div>
           <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={pickImage} />
-          <input ref={thumbRef} type="file" accept="image/*" className="hidden" onChange={pickVideoThumb} />
         </div>
 
         <div>

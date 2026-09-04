@@ -21,7 +21,7 @@ function selectRows(source, { rows, filteredRows }) {
   }
 }
 
-export default function BulkDraftModal({ rows, filteredRows, templates, languages, onDraftCreated, onClearDraftFlags, onClose }) {
+export default function BulkDraftModal({ rows, filteredRows, templates, languages, settings, onDraftCreated, onClearDraftFlags, onClose }) {
   const [source, setSource] = useState('nextBatch')
   const [skipped, setSkipped] = useState(() => new Set()) // _idx the user unticked
   const [phase, setPhase] = useState('preflight') // preflight | running | done
@@ -32,9 +32,9 @@ export default function BulkDraftModal({ rows, filteredRows, templates, language
   const candidates = useMemo(() => {
     return selectRows(source, { rows, filteredRows }).map(row => ({
       row,
-      prepared: prepareDraft(row, templates, languages),
+      prepared: prepareDraft(row, templates, languages, settings),
     }))
-  }, [source, rows, filteredRows, templates, languages])
+  }, [source, rows, filteredRows, templates, languages, settings])
 
   const eligible = candidates.filter(c => c.prepared.ok && !skipped.has(c.row._idx))
   const blocked = candidates.filter(c => !c.prepared.ok)

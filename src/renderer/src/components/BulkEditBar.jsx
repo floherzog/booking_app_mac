@@ -5,7 +5,7 @@ import { fromInputValue } from '@core/parseDate'
 // email counts are intentionally excluded (they're per-venue unique / derived).
 const BULK_FIELDS = [
   { key: 'Band', label: 'Band', type: 'band' },
-  { key: 'Type', label: 'Type', type: 'text' },
+  { key: 'Type', label: 'Type', type: 'venueType' },
   { key: 'City', label: 'City', type: 'text' },
   { key: 'Country', label: 'Country', type: 'text' },
   { key: 'Follow Up Date', label: 'Follow Up Date', type: 'date' },
@@ -32,7 +32,7 @@ function defaultValue(type) {
 }
 
 export default function BulkEditBar({
-  selectedCount, filteredCount, bandOptions = [],
+  selectedCount, filteredCount, bandOptions = [], typeOptions = [],
   onSelectAllFiltered, onClear, onBulkEdit, onBulkDelete, onExit,
 }) {
   const [fieldKey, setFieldKey] = useState(BULK_FIELDS[0].key)
@@ -91,6 +91,11 @@ export default function BulkEditBar({
             <select value={value} onChange={e => setValue(e.target.value)} className={`${ctrl} max-w-[12rem]`}>
               <option value="">— (clear)</option>
               {bandOptions.filter(Boolean).map(b => <option key={b} value={b}>{b}</option>)}
+            </select>
+          ) : field.type === 'venueType' ? (
+            <select value={value} onChange={e => setValue(e.target.value)} className={`${ctrl} max-w-[12rem]`}>
+              <option value="">— (clear)</option>
+              {typeOptions.filter(Boolean).map(t => <option key={t} value={t}>{t}</option>)}
             </select>
           ) : field.type === 'bool' ? (
             <select value={value} onChange={e => setValue(e.target.value)} className={ctrl}>

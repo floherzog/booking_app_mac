@@ -8,6 +8,10 @@ directories:
   output: release
   buildResources: resources
 
+# Applies an ad-hoc signature to the packed .app before the dmg/zip is built, so
+# a downloaded copy is not rejected as "damaged". No-op for the signed build.
+afterPack: scripts/adhoc-sign.cjs
+
 # The renderer is bundled by Vite, so only out/ plus the main process's runtime
 # dependencies (date-fns, papaparse, imapflow, nodemailer) need to ship.
 files:
@@ -29,12 +33,21 @@ mac:
       arch: [arm64, x64]
     - target: zip
       arch: [arm64]
-  # Signing is driven entirely by the environment, never by this file:
-  #   npm run dist         → CSC_IDENTITY_AUTO_DISCOVERY=false, unsigned
-  #   npm run dist:signed  → uses CSC_LINK / APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD
-  #                          / APPLE_TEAM_ID from the environment
-  # Changing the signing identity invalidates safeStorage secrets, so users have
-  # to re-enter their token and mail password. See the README.
+  # Signing is driven by the environment, plus the afterPack hook above:
+  #   npm run dist         → electron-builder itself signs nothing
+  #                          (CSC_IDENTITY_AUTO_DISCOVERY=false); scripts/adhoc-sign.cjs
+  #                          then applies an AD-HOC signature before the dmg/zip is
+  #                          built. This matters: an app with NO signature at all is
+  #                          reported by macOS as "damaged and can't be opened" once
+  #                          it picks up a quarantine flag from a download, with no
+  #                          way to override. Ad-hoc gets the ordinary "unidentified
+  #                          developer" flow, which the recipient can allow
+  #                          (right-click → Open, or Privacy & Security → Open Anyway).
+  #   npm run dist:signed  → CSC_LINK / APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD /
+  #                          APPLE_TEAM_ID from the environment, fully notarized;
+  #                          the hook stands aside.
+  # Changing the signing identity invalidates safeStorage secrets, so the first
+  # launch after a change asks for the GitHub token and mail password again.
   hardenedRuntime: true
   gatekeeperAssess: false
   entitlements: resources/entitlements.mac.plist

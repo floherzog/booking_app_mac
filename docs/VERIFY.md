@@ -80,12 +80,78 @@ above all others:
 
 - [ ] Creating a draft leaves **`Last emailed` unchanged** and stages no edits.
 
+## Window and menu bar
+
+- [ ] Drag the window by its title bar; resize it from every edge and corner.
+- [ ] Do both again with **Settings** open — a full-screen modal must not make
+      the window feel stuck.
+- [ ] ⌘Q quits, ⌘W closes the window, ⌘M minimises, ⌘, opens Settings,
+      ⌘T opens the templates manager.
+- [ ] The in-app ⚙ button still opens the same Settings panel.
+- [ ] **Booking → Check for Updates…** reports either "up to date" or an
+      available version with a working Download button. With Wi-Fi off it says
+      it could not reach GitHub rather than hanging.
+- [ ] Settings ▸ General shows the running version and its own update button.
+
+## Venue types
+
+- [ ] The Type column is a dropdown. Pick `festival`, and after saving the row
+      classifies as *Festival (not now)* or *Send* depending on the window.
+- [ ] Pick **+ Add new type…**, enter a name: it is written into the cell,
+      appears in Settings ▸ Venue types, and survives a relaunch.
+- [ ] A venue whose Type is something not in the managed list still shows that
+      value, and it stays selectable in the dropdown.
+- [ ] Removing a type in Settings changes no venue's data.
+- [ ] Type is also a dropdown in the venue detail modal and the bulk-edit bar.
+
+## Template editor
+
+- [ ] Type three lines in the body: the spacing in the editor matches the
+      preview pane and is single-spaced, not doubled. Pressing Enter twice makes
+      one blank line, and that blank line survives into the draft.
+- [ ] The bullet-list button is gone; a template that already had a bullet list
+      still renders one.
+- [ ] Select some text → 🔗 (or ⌘K) → enter a URL: the link is applied, shows in
+      the preview, and clicking 🔗 again pre-fills it. Submitting an empty field
+      removes it; Cancel changes nothing. Typing `example.com` produces
+      `https://example.com`.
+- [ ] With nothing selected the 🔗 button is disabled rather than silently doing
+      nothing.
+- [ ] ▶ asks for a YouTube URL, fetches the thumbnail, and inserts it at roughly
+      the size Apple Mail gives its own link previews. A Vimeo URL is refused
+      with a readable message.
+- [ ] The thumbnail arrives in the actual draft as an inline image (not a broken
+      remote one) — see VERIFY-MAIL.md.
+
+## Contact fallback
+
+- [ ] Settings ▸ Templates: set the German fallback to `{{venue}} Team`.
+      Preview a German venue **with no Contact** — the greeting reads
+      "Kulturzentrum Team", and the "Empty for this venue" warning no longer
+      lists `{{contact}}`.
+- [ ] Switch to *First name only* and preview a venue whose contact is
+      "Anna Müller": the greeting says "Anna".
+- [ ] Clear a language's fallback: that language goes back to the old behaviour
+      (empty, and flagged in the preflight).
+
 ## Packaged build
 
-- [ ] `npm run dist`, then install the DMG (or unzip the zip) on a **different**
-      account or Mac.
-- [ ] First launch on an unsigned build: right-click → Open (see the README's
-      install section). The storage picker appears.
+- [ ] `npm run dist` — the build log shows `adhoc-sign  ad-hoc signature applied`.
+- [ ] `codesign -dv --verbose=4 release/mac-arm64/Booking.app` reports
+      `Signature=adhoc`, and `codesign --verify --deep --strict` is silent.
+- [ ] Fake a download locally and confirm it does **not** say "damaged":
+
+      ```sh
+      rm -rf /tmp/Booking.app && cp -R release/mac-arm64/Booking.app /tmp/
+      xattr -w com.apple.quarantine "0081;00000000;Safari;" /tmp/Booking.app
+      open /tmp/Booking.app
+      ```
+
+- [ ] Publish a release (docs/RELEASING.md), then **download the DMG from
+      GitHub** — the download is what applies the real quarantine flag — and
+      install it on a **different** account or Mac.
+- [ ] First launch: right-click → Open (see the README's install section). The
+      storage picker appears.
 - [ ] Data lands in `~/Library/Application Support/Booking/` —
       `settings.json`, `geo_cache.json`, `templates/`.
 - [ ] The map has pins on first launch, proving the seeded `geo_cache.json` was

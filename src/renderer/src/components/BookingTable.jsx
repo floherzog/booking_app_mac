@@ -154,7 +154,27 @@ const COLUMNS = [
     },
     sortingFn: 'alphanumeric',
   }),
-  mkEditable('Type', { header: 'Type', cellClass: 'text-xs text-gray-500' }),
+  helper.accessor('Type', {
+    header: 'Type',
+    cell: i => {
+      const { edits, onEdit, typeOptions, onAddType } = i.table.options.meta
+      return (
+        <SelectCell
+          value={i.row.original['Type'] || ''}
+          rowIndex={i.row.original._idx}
+          field="Type"
+          label="Type"
+          title="Click to change the venue type"
+          edits={edits}
+          onEdit={onEdit}
+          options={typeOptions || []}
+          onAddOption={onAddType}
+          className="text-xs text-gray-500 dark:text-gray-400"
+        />
+      )
+    },
+    sortingFn: 'alphanumeric',
+  }),
   helper.accessor('Last emailed', {
     header: 'Last Emailed',
     cell: i => {
@@ -239,10 +259,10 @@ const COLUMNS = [
 // One-click draft straight from the row. Disabled (with the reason on hover)
 // when the venue has no email or no template for its band and language.
 function DraftAction({ row, meta }) {
-  const { templates, languages, onQuickDraft, draftingIdx, draftResults } = meta
+  const { templates, languages, settings, onQuickDraft, draftingIdx, draftResults } = meta
   if (!onQuickDraft) return null
 
-  const prepared = prepareDraft(row, templates || [], languages)
+  const prepared = prepareDraft(row, templates || [], languages, settings)
   const busy = draftingIdx === row._idx
   const result = draftResults?.[row._idx]
 
@@ -525,7 +545,7 @@ function MobileCard({ row, edits, onVenueClick, onEdit }) {
   )
 }
 
-export default function BookingTable({ rows, edits, onEdit, onVenueClick, sortBy, extraField, bandOptions, selectMode = false, selected, onToggleRow, onToggleAll, templates, languages, onQuickDraft, draftingIdx, draftResults }) {
+export default function BookingTable({ rows, edits, onEdit, onVenueClick, sortBy, extraField, bandOptions, typeOptions, onAddType, selectMode = false, selected, onToggleRow, onToggleAll, templates, languages, settings, onQuickDraft, draftingIdx, draftResults }) {
   const [sorting, setSorting] = useState(sortBy || [{ id: '_status', desc: false }])
 
   useEffect(() => {
@@ -552,7 +572,7 @@ export default function BookingTable({ rows, edits, onEdit, onVenueClick, sortBy
     onSortingChange: setSorting,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
-    meta: { edits, onEdit, onVenueClick, bandOptions, selected, onToggleRow, onToggleAll, templates, languages, onQuickDraft, draftingIdx, draftResults },
+    meta: { edits, onEdit, onVenueClick, bandOptions, typeOptions, onAddType, selected, onToggleRow, onToggleAll, templates, languages, settings, onQuickDraft, draftingIdx, draftResults },
   })
 
   const sortedRows = table.getRowModel().rows

@@ -61,7 +61,7 @@ const SECTIONS = [
     fields: [
       { key: 'Venue', label: 'Venue', type: 'text', span: 2 },
       { key: 'Band', label: 'Band', type: 'select' },
-      { key: 'Type', label: 'Type', type: 'text', hint: 'main · festival · dead' },
+      { key: 'Type', label: 'Type', type: 'select', hint: 'Only "festival" and "dead" change the classification.' },
       { key: 'City', label: 'City', type: 'text' },
       { key: 'Country', label: 'Country', type: 'text' },
     ],
@@ -311,7 +311,7 @@ function Field({ fieldDef, value, isEdited, onChange, row }) {
   )
 }
 
-export default function VenueDetailModal({ rowIndex, row, edits, onEdit, onClose, onDelete, duplicatePartners = [], onDismissDuplicate, onOpenMerge, onSave, editCount, onOpenMap, bandOptions = [], templates = [], languages, draftedAtIso, onDraftCreated }) {
+export default function VenueDetailModal({ rowIndex, row, edits, onEdit, onClose, onDelete, duplicatePartners = [], onDismissDuplicate, onOpenMerge, onSave, editCount, onOpenMap, bandOptions = [], typeOptions = [], templates = [], languages, settings, draftedAtIso, onDraftCreated }) {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const rowEdits = edits[rowIndex] || {}
   const effective = { ...row, ...rowEdits }
@@ -399,7 +399,8 @@ export default function VenueDetailModal({ rowIndex, row, edits, onEdit, onClose
               <div className="grid grid-cols-2 gap-3">
                 {section.fields.map(f => {
                   const Comp = f.type === 'frequency' ? FrequencyField : Field
-                  const fieldDef = f.key === 'Band' ? { ...f, options: bandOptions } : f
+                  const OPTIONS = { Band: bandOptions, Type: typeOptions }
+                  const fieldDef = OPTIONS[f.key] ? { ...f, options: OPTIONS[f.key] } : f
                   return (
                     <Comp
                       key={f.key}
@@ -437,6 +438,7 @@ export default function VenueDetailModal({ rowIndex, row, edits, onEdit, onClose
               row={effective}
               templates={templates}
               languages={languages}
+              settings={settings}
               draftedAtIso={draftedAtIso}
               onDraftCreated={onDraftCreated}
             />

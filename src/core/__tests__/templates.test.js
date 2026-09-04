@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import {
   PLACEHOLDERS, languageForRow, resolveTemplate, substitutePlaceholders,
-  substituteDoc, substituteTemplate,
+  substituteDoc, substituteTemplate, contactOptionsFor, firstNameOf,
+  DEFAULT_TEMPLATE_OPTIONS,
 } from '@core/templates'
 
 const LANGUAGES = {
@@ -107,6 +108,39 @@ describe('substitutePlaceholders', () => {
     expect(substitutePlaceholders('{{contact}}', { Contact: '   ' }).empties).toEqual(['contact'])
   })
 
+  it('uses only the first name when asked to', () => {
+    const opts = { contactStyle: 'first' }
+    expect(substitutePlaceholders('{{contact}}', { Contact: 'Anna Müller' }, opts).text).toBe('Anna')
+    // Surname-first, as the CSV occasionally records it.
+    expect(substitutePlaceholders('{{contact}}', { Contact: 'Müller, Anna' }, opts).text).toBe('Anna')
+    expect(substitutePlaceholders('{{contact}}', { Contact: 'Anna' }, opts).text).toBe('Anna')
+  })
+
+  it('falls back to the configured greeting when there is no contact', () => {
+    const opts = { contactFallback: '{{venue}} Team' }
+    const { text, empties } = substitutePlaceholders('Hallo {{contact}},', { Venue: 'Club X' }, opts)
+    // The fallback is itself a template, so {{venue}} inside it resolves too.
+    expect(text).toBe('Hallo Club X Team,')
+    // With a fallback in place, the missing contact is no longer a warning.
+    expect(empties).not.toContain('contact')
+  })
+
+  it('reports the fields a fallback itself could not fill', () => {
+    const { text, empties } = substitutePlaceholders('{{contact}}', {}, { contactFallback: '{{venue}} team' })
+    expect(text).toBe(' team')
+    expect(empties).toEqual(['venue'])
+  })
+
+  it('cannot recurse through a fallback that mentions {{contact}}', () => {
+    const { text } = substitutePlaceholders('{{contact}}', {}, { contactFallback: 'Hi {{contact}}' })
+    expect(text).toBe('Hi ')
+  })
+
+  it('keeps the old behaviour when no options are given', () => {
+    expect(substitutePlaceholders('{{contact}}', { Contact: 'Anna Müller' }).text).toBe('Anna Müller')
+    expect(substitutePlaceholders('{{contact}}', {}).empties).toEqual(['contact'])
+  })
+
   it('tolerates whitespace and case inside the braces', () => {
     expect(substitutePlaceholders('{{ Venue }}', row).text).toBe('Club X')
   })
@@ -180,5 +214,56 @@ describe('substituteTemplate', () => {
     expect(out.subject).toBe('Anfrage Club X ()')
     expect(out.bodyJSON.content[0].content[0].text).toBe('Hallo ')
     expect(out.empties.sort()).toEqual(['contact', 'dates'])
+  })
+})
+
+describe('firstNameOf', () => {
+  it('takes the first token, or the part after a comma', () => {
+    expect(firstNameOf('Anna Müller')).toBe('Anna')
+    expect(firstNameOf('  Anna   Müller ')).toBe('Anna')
+    expect(firstNameOf('Müller, Anna')).toBe('Anna')
+    expect(firstNameOf('Anna')).toBe('Anna')
+    expect(firstNameOf('')).toBe('')
+    expect(firstNameOf(null)).toBe('')
+  })
+})
+
+describe('contactOptionsFor', () => {
+  const settings = {
+    languages: LANGUAGES,
+    templates: { contactStyle: 'first', contactFallbacks: { en: '{{venue}} team', de: '{{venue}} Team' } },
+  }
+
+  it('picks the fallback for the language the venue maps to', () => {
+    expect(contactOptionsFor({ Country: 'Germany' }, settings).contactFallback).toBe('{{venue}} Team')
+    expect(contactOptionsFor({ Country: 'France' }, settings).contactFallback).toBe('{{venue}} team')
+  })
+
+  it('falls back to the default language for an unmapped country', () => {
+    // France is not in the map, so the default language (en) decides.
+    expect(contactOptionsFor({ Country: 'France' }, settings).contactStyle).toBe('first')
+  })
+
+  it('uses the built-in defaults when settings say nothing', () => {
+    const opts = contactOptionsFor({ Country: 'Germany' }, {})
+    expect(opts.contactStyle).toBe('full')
+    expect(opts.contactFallback).toBe(DEFAULT_TEMPLATE_OPTIONS.contactFallbacks.en)
+  })
+
+  it('rejects an unknown contactStyle rather than passing it through', () => {
+    expect(contactOptionsFor({}, { templates: { contactStyle: 'nonsense' } }).contactStyle).toBe('full')
+  })
+})
+
+describe('substituteTemplate with contact options', () => {
+  it('applies the fallback to both the subject and the body', () => {
+    const template = {
+      subject: 'Hallo {{contact}}',
+      bodyJSON: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Hi {{contact}},' }] }] },
+    }
+    const out = substituteTemplate(template, { Venue: 'Club X' }, { contactFallback: '{{venue}} Team' })
+    expect(out.subject).toBe('Hallo Club X Team')
+    expect(out.bodyJSON.content[0].content[0].text).toBe('Hi Club X Team,')
+    expect(out.empties).not.toContain('contact')
   })
 })

@@ -1,5 +1,8 @@
 import { Node, mergeAttributes } from '@tiptap/core'
 
+const DEFAULT_LABEL = '▶ Watch video'
+const DEFAULT_THUMB_WIDTH = 320
+
 // Email clients cannot play an embedded video, so a "video" in a template is
 // really a clickable thumbnail: an image (stored like any other inline asset)
 // wrapped in a link, plus a visible "watch" line for clients that block images.
@@ -29,9 +32,16 @@ export const VideoLink = Node.create({
         renderHTML: attrs => (attrs.thumbAssetId ? { 'data-thumb-asset': attrs.thumbAssetId } : {}),
       },
       label: {
-        default: '▶ Watch video',
-        parseHTML: el => el.getAttribute('data-label') || '▶ Watch video',
-        renderHTML: attrs => ({ 'data-label': attrs.label || '▶ Watch video' }),
+        default: DEFAULT_LABEL,
+        parseHTML: el => el.getAttribute('data-label') || DEFAULT_LABEL,
+        renderHTML: attrs => ({ 'data-label': attrs.label || DEFAULT_LABEL }),
+      },
+      // Displayed thumbnail width in px — matched to Apple Mail's own link
+      // previews so a template looks the same as the rest of a conversation.
+      width: {
+        default: DEFAULT_THUMB_WIDTH,
+        parseHTML: el => Number(el.getAttribute('data-width')) || DEFAULT_THUMB_WIDTH,
+        renderHTML: attrs => ({ 'data-width': String(attrs.width || DEFAULT_THUMB_WIDTH) }),
       },
     }
   },
@@ -43,13 +53,16 @@ export const VideoLink = Node.create({
   renderHTML({ HTMLAttributes, node }) {
     const url = node.attrs.url || ''
     const thumb = node.attrs.thumbAssetId || ''
-    const label = node.attrs.label || '▶ Watch video'
+    const label = node.attrs.label || DEFAULT_LABEL
+    const width = Number(node.attrs.width) || DEFAULT_THUMB_WIDTH
 
     const linkChildren = []
     if (thumb) {
       // booking-asset:// is rewritten to a cid: reference by renderEmailHtml,
-      // exactly like a plain inline image.
-      linkChildren.push(['img', { src: `booking-asset://${thumb}`, alt: label }])
+      // exactly like a plain inline image. Only the width attribute is set here
+      // (Outlook honours it and ignores styles); renderEmailHtml derives the
+      // matching inline style from it, so image styling stays in one place.
+      linkChildren.push(['img', { src: `booking-asset://${thumb}`, alt: label, width: String(width) }])
     }
     linkChildren.push(['span', { class: 'booking-video-label' }, label])
 

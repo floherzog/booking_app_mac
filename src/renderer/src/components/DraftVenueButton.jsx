@@ -5,14 +5,14 @@ import { prepareDraft, createDraft, createDraftViaAppleScript } from '../lib/dra
 // The per-venue draft action. The IMAP path is primary; the AppleScript one sits
 // in the overflow because it drives Mail's window by keystroke and needs macOS
 // permissions, so it is only ever sensible for a single draft.
-export default function DraftVenueButton({ row, templates, languages, draftedAtIso, onDraftCreated }) {
+export default function DraftVenueButton({ row, templates, languages, settings, draftedAtIso, onDraftCreated }) {
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState(null) // { ok, message }
   const [overflow, setOverflow] = useState(false)
 
   const prepared = useMemo(
-    () => prepareDraft(row, templates, languages),
-    [row, templates, languages],
+    () => prepareDraft(row, templates, languages, settings),
+    [row, templates, languages, settings],
   )
 
   async function run(fn, successMessage) {
@@ -20,7 +20,7 @@ export default function DraftVenueButton({ row, templates, languages, draftedAtI
     setStatus(null)
     setOverflow(false)
     try {
-      await fn(row, templates, languages)
+      await fn(row, templates, languages, settings)
       setStatus({ ok: true, message: successMessage })
       onDraftCreated?.(row)
     } catch (e) {

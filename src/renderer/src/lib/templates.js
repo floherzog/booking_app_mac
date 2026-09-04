@@ -21,3 +21,9 @@ export async function uploadAsset(file) {
   const buffer = await file.arrayBuffer()
   return window.bookingApi.saveTemplateAsset({ name: file.name, data: new Uint8Array(buffer) })
 }
+
+// Download a YouTube thumbnail into the asset store. Main does the fetching —
+// the renderer's CSP blocks remote requests. → { assetId, url, videoUrl, title }
+export function fetchVideoThumb(url) {
+  return window.bookingApi.fetchVideoThumb(url)
+}

@@ -1,3 +1,61 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* The template editor's writing surface. Tailwind's preflight strips all
+   element styling, and @tailwindcss/typography is not installed, so the spacing
+   the editor shows has to be stated here — matched to the inline styles
+   renderEmailHtml puts on the same elements, so the editor, the preview and the
+   sent mail all read alike. Keep these in sync with core/emailHtml.js. */
+@layer components {
+  .booking-prose p {
+    margin: 0;
+    line-height: 1.5;
+  }
+
+  .booking-prose ul,
+  .booking-prose ol {
+    margin: 0;
+    padding-left: 22px;
+  }
+
+  .booking-prose ul { list-style: disc; }
+  .booking-prose ol { list-style: decimal; }
+
+  .booking-prose li {
+    margin: 0;
+    line-height: 1.5;
+  }
+
+  .booking-prose a {
+    color: #4f46e5;
+    text-decoration: underline;
+  }
+
+  .booking-prose img {
+    max-width: 100%;
+    height: auto;
+    display: block;
+  }
+
+  /* The video node is an atom: show it as the clickable block it becomes in the
+     mail, and stop clicks inside the editor from navigating. */
+  .booking-prose div[data-video-link] {
+    margin: 4px 0;
+  }
+
+  .booking-prose div[data-video-link] img {
+    width: 320px;
+    max-width: 100%;
+    border-radius: 6px;
+  }
+
+  .booking-prose div[data-video-link] a {
+    pointer-events: none;
+  }
+
+  .booking-prose .booking-video-label {
+    display: inline-block;
+    margin-top: 6px;
+  }
+}

@@ -179,30 +179,40 @@ tab order — adjust `TABS_TO_BODY` in `src/main/jxa/createMailDraft.js`.
 
 | File | For |
 | --- | --- |
-| `Booking-<version>-arm64.zip` | Apple Silicon — **the smoothest route** |
-| `Booking-<version>-arm64.dmg` | Apple Silicon |
+| `Booking-<version>-arm64.dmg` | Apple Silicon — **hand people this one** |
 | `Booking-<version>-x64.dmg` | Intel |
+| `Booking-<version>-arm64.zip` | Apple Silicon, if a zip is easier to send |
 
-They are **unsigned**, so macOS Gatekeeper will refuse to open the app on the
-first try. Prefer the zip: a DMG adds a second layer of quarantine warnings.
+The app is **ad-hoc signed and not notarised**, so the first launch on someone
+else's Mac needs one deliberate override:
 
-Pick whichever you prefer:
-
-- **Right-click → Open** on the app, then *Open* in the dialog. This is the
-  normal path and only needs doing once.
+- **Right-click → Open** on the app, then *Open* in the dialog. Once only.
 - **macOS 15 (Sequoia) and later:** double-click, let it be blocked, then go to
   *System Settings → Privacy & Security*, scroll to the bottom, and press
   **Open Anyway**.
-- **From the terminal**, to clear the quarantine flag outright:
+- Last resort, if something has gone wrong with the signature:
 
   ```sh
-  xattr -dr com.apple.quarantine /Applications/Booking.app
+  xattr -cr /Applications/Booking.app
   ```
+
+Prefer the DMG when sending a build: a DMG carries one quarantine flag on the
+image, whereas an extracted zip flags every file inside it.
+
+> **Why ad-hoc signing is not optional.** An app with *no* signature at all is
+> reported by modern macOS as **"file is damaged and can't be opened"** as soon
+> as it carries a quarantine flag from a download, with no override offered —
+> which is exactly what a shared build used to do. `scripts/adhoc-sign.cjs`
+> (an electron-builder `afterPack` hook) applies a `codesign --sign -` signature
+> before the dmg/zip is built, which restores the ordinary "unidentified
+> developer → Open Anyway" flow. Only notarisation removes the prompt entirely.
+> The build fails rather than shipping an app that fails `codesign --verify`.
 
 ### Signing and notarising
 
-Signing is off unless you ask for it. Set these before `npm run dist` and
-electron-builder will sign and notarise:
+For a build with no warning at all you need an Apple Developer Program
+membership. Set these and run `npm run dist:signed`; the ad-hoc hook stands
+aside and electron-builder signs and notarises properly:
 
 ```sh
 export CSC_LINK=/path/to/certificate.p12
@@ -210,11 +220,19 @@ export CSC_KEY_PASSWORD=...
 export APPLE_ID=you@example.com
 export APPLE_APP_SPECIFIC_PASSWORD=....-....-....-....
 export APPLE_TEAM_ID=XXXXXXXXXX
-npm run dist
+npm run dist:signed
 ```
 
 Remember that changing the signing identity invalidates stored secrets (see
-above).
+above) — the first launch afterwards asks for the GitHub token and mail password
+again.
+
+## Shipping an update
+
+The app has no auto-updater; **Booking → Check for Updates…** compares the
+running version against the latest GitHub release and, if there is a newer one,
+opens the download page. See [docs/RELEASING.md](docs/RELEASING.md) for the
+steps that publish one.
 
 ## Verifying by hand
 

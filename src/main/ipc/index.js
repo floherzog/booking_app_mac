@@ -1,4 +1,4 @@
-import { ipcMain, shell } from 'electron'
+import { ipcMain, shell, app } from 'electron'
 import { readSettings, writeSettings } from '../settingsStore.js'
 import { setSecret, hasSecret, deleteSecret } from '../secrets.js'
 import { registerStorageIpc } from './storage.js'
@@ -7,6 +7,7 @@ import { registerGeocacheIpc } from './geocache.js'
 import { registerTemplatesIpc } from './templates.js'
 import { registerMailImapIpc } from './mailImap.js'
 import { registerMailAppleScriptIpc } from './mailAppleScript.js'
+import { registerUpdatesIpc } from './updates.js'
 
 // Every renderer→main call goes through ipcMain.handle. The preload re-exposes
 // exactly this list as window.bookingApi.* — the renderer never sees ipcRenderer.
@@ -25,6 +26,8 @@ export function registerIpc() {
   registerTemplatesIpc()
   registerMailImapIpc()
   registerMailAppleScriptIpc()
+  registerUpdatesIpc()
 
+  ipcMain.handle('app:version', () => app.getVersion())
   ipcMain.handle('app:openExternal', (_e, url) => shell.openExternal(url))
 }

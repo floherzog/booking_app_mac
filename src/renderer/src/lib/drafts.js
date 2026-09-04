@@ -1,4 +1,4 @@
-import { resolveTemplate, substituteTemplate } from '@core/templates'
+import { resolveTemplate, substituteTemplate, contactOptionsFor } from '@core/templates'
 import { renderEmailHtml } from '@core/emailHtml'
 
 // The key a created draft is logged under. Venue+City+Band identifies a venue
@@ -14,7 +14,10 @@ export function draftedAt(settings, row) {
 
 // Everything that decides whether a draft can be created, without creating one.
 // Drives the preflight list and the disabled-with-a-reason buttons.
-export function prepareDraft(row, templates, languages) {
+// `settings` is optional and only supplies the {{contact}} options (name style
+// and the per-language fallback greeting); without it the raw Contact value is
+// used, which is what the core defaults to.
+export function prepareDraft(row, templates, languages, settings) {
   const email = (row['Email'] || '').trim()
   const resolved = resolveTemplate(templates, row, languages)
 
@@ -27,7 +30,8 @@ export function prepareDraft(row, templates, languages) {
     return { ...resolved, ok: false, empties: [] }
   }
 
-  const substituted = substituteTemplate(resolved.template, row)
+  const opts = settings ? contactOptionsFor(row, settings) : {}
+  const substituted = substituteTemplate(resolved.template, row, opts)
   const { html, cids } = renderEmailHtml(substituted.bodyJSON)
 
   return {
@@ -41,8 +45,8 @@ export function prepareDraft(row, templates, languages) {
 // Create the draft over IMAP. Deliberately does NOT touch 'Last emailed': a
 // draft sitting in Mail is not a sent email, and treating it as one would push
 // the venue out of the send list without anything having gone out.
-export async function createDraft(row, templates, languages) {
-  const prepared = prepareDraft(row, templates, languages)
+export async function createDraft(row, templates, languages, settings) {
+  const prepared = prepareDraft(row, templates, languages, settings)
   if (!prepared.ok) throw new Error(prepared.reason)
   const result = await window.bookingApi.appendDraft(prepared.draft)
   return { ...result, prepared }
@@ -50,8 +54,8 @@ export async function createDraft(row, templates, languages) {
 
 // The AppleScript fallback: no server configuration, but it drives Mail's UI, so
 // it is offered for one venue at a time only.
-export async function createDraftViaAppleScript(row, templates, languages) {
-  const prepared = prepareDraft(row, templates, languages)
+export async function createDraftViaAppleScript(row, templates, languages, settings) {
+  const prepared = prepareDraft(row, templates, languages, settings)
   if (!prepared.ok) throw new Error(prepared.reason)
   await window.bookingApi.appleScriptDraft(prepared.draft)
   return { prepared }

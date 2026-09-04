@@ -15,9 +15,26 @@ describe('renderEmailHtml', () => {
   it('produces an inline-styled document with no external stylesheet', () => {
     const { html } = renderEmailHtml(doc(para(text('Hallo'))))
     expect(html).toMatch(/^<!doctype html><html><body style="/)
-    expect(html).toContain('<p style="margin:0 0 12px 0">Hallo</p>')
+    // Single-spaced: a paragraph margin here would double every line gap.
+    expect(html).toContain('<p style="margin:0;line-height:1.5">Hallo</p>')
     expect(html).not.toContain('<style')
     expect(html).not.toContain('class=')
+  })
+
+  it('keeps a blank line alive as a non-breaking space', () => {
+    // Several mail clients collapse <p></p> to nothing, losing the gap the user
+    // deliberately typed.
+    const { html } = renderEmailHtml(doc(para(text('a')), para(), para(text('b'))))
+    expect(html).toContain('>&nbsp;</p>')
+  })
+
+  it('styles bullet lists inline so clients do not invent their own', () => {
+    const { html } = renderEmailHtml(doc({
+      type: 'bulletList',
+      content: [{ type: 'listItem', content: [para(text('one'))] }],
+    }))
+    expect(html).toContain('<ul style="margin:0 0 0 0;padding-left:22px">')
+    expect(html).toContain('<li style="margin:0;line-height:1.5">')
   })
 
   it('keeps bold, italic and underline as tags', () => {
@@ -73,6 +90,10 @@ describe('renderEmailHtml', () => {
     expect(html).toContain('href="https://vimeo.com/12345"')
     expect(html).toContain('src="cid:asset-thumb.jpg"')
     expect(html).toContain('▶ Watch video')
+    // Sized like Apple Mail's own link previews, as an attribute (Outlook) and
+    // as a matching inline style (everyone else).
+    expect(html).toContain('width="320"')
+    expect(html).toContain('width:320px')
     // The thumbnail travels as an inline attachment like any other image.
     expect(cids).toEqual([{ cid: 'asset-thumb.jpg', assetId: 'thumb.jpg' }])
   })

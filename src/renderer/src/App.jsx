@@ -3,6 +3,7 @@ import { classifyBooking } from '@core/classify'
 import { getSettings, saveSettings } from './lib/config'
 import { ACTION_STATUSES, getMissingFields, getMissingSeverity } from '@core/constants'
 import { effectiveBandOptions, bandsFromRows, normalizeBands } from '@core/bands'
+import { effectiveTypeOptions } from '@core/venueTypes'
 import { computeNextBatch } from '@core/nextBatch'
 import { replyHealth } from '@core/replyStatus'
 import { computeDuplicates, dismissPair } from '@core/duplicates'
@@ -25,6 +26,7 @@ import LogicModal from './components/LogicModal'
 import VenueDetailModal from './components/VenueDetailModal'
 import MergeModal from './components/MergeModal'
 import BulkEditBar from './components/BulkEditBar'
+import { useInlinePrompt } from './components/InlinePrompt'
 
 const SEARCH_FIELDS = ['Venue', 'City', 'Country', 'Contact', 'Band', 'Email', 'Note', 'Status', 'Text', 'Time Frame', 'Dates']
 
@@ -37,6 +39,7 @@ export default function App() {
   const [error, setError] = useState('')
   const [lastFetched, setLastFetched] = useState(null)
   const [showSettings, setShowSettings] = useState(false)
+  const [promptNode, ask] = useInlinePrompt()
   const [showImport, setShowImport] = useState(false)
   const [showTemplates, setShowTemplates] = useState(false)
   const [showBulkDraft, setShowBulkDraft] = useState(false)
@@ -105,6 +108,14 @@ export default function App() {
       setLoading(false)
     }
   }, [today, settings, persist])
+
+  // The macOS menu bar drives the same panels as the in-app buttons. These are
+  // the only channels main is allowed to push (see the preload's allowlist).
+  useEffect(() => {
+    const offSettings = window.bookingApi.onMenu('menu:openSettings', () => setShowSettings(true))
+    const offTemplates = window.bookingApi.onMenu('menu:openTemplates', () => setShowTemplates(true))
+    return () => { offSettings(); offTemplates() }
+  }, [])
 
   // Kick off the initial fetch once on mount. Fetching is a legitimate effect and the
   // setLoading/setRows calls inside load() are its whole purpose, so opt out of the
@@ -188,7 +199,7 @@ export default function App() {
   async function handleQuickDraft(row) {
     setDraftingIdx(row._idx)
     try {
-      await createDraft(row, templates, settings.languages)
+      await createDraft(row, templates, settings.languages, settings)
       setDraftResults(prev => ({ ...prev, [row._idx]: { ok: true } }))
       await recordDraft(row)
     } catch (e) {
@@ -333,6 +344,24 @@ export default function App() {
   const editCount = Object.values(edits).reduce((sum, f) => sum + Object.keys(f).length, 0) + deletions.size + additions.size
   const { dups: duplicateSet, partners: duplicatePartners } = useMemo(() => computeDuplicates(rows, dismissed), [rows, dismissed])
   const bandOptions = useMemo(() => effectiveBandOptions(rows, settings?.bands), [rows, settings])
+  const typeOptions = useMemo(() => effectiveTypeOptions(rows, settings?.venueTypes), [rows, settings])
+
+  // "+ Add new…" in a Type dropdown: ask for the name, remember it in settings so
+  // it is offered everywhere from now on, and hand it back to the cell to commit.
+  async function handleAddType() {
+    const name = (await ask({
+      label: 'New venue type',
+      placeholder: 'club',
+      hint: 'Only "festival" and "dead" change how a venue is classified; anything else is just a label.',
+      confirmLabel: 'Add',
+    }))?.trim()
+    if (!name) return null
+    const known = settings?.venueTypes || []
+    if (!known.some(t => t.toLowerCase() === name.toLowerCase())) {
+      await persist({ ...settings, venueTypes: [...known, name] })
+    }
+    return name
+  }
 
   function handleDismiss(r1, r2) {
     const next = dismissPair(dismissed, r1, r2)
@@ -448,6 +477,7 @@ export default function App() {
   return (
     <RulesProvider rules={rules}>
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors">
+      {promptNode}
       <div className="max-w-[1700px] mx-auto px-4 py-6 space-y-5">
 
         {/* Desktop header — original layout */}
@@ -547,7 +577,7 @@ export default function App() {
               />
             </div>
 
-            <FilterBar rows={rows} filters={filters} onChange={setFilters} onNewVenue={handleNewVenue} bandOptions={bandOptions} />
+            <FilterBar rows={rows} filters={filters} onChange={setFilters} onNewVenue={handleNewVenue} bandOptions={bandOptions} typeOptions={typeOptions} />
             {view === 'list' && (
               <>
                 <div className="text-xs text-gray-400 dark:text-gray-500 flex items-center gap-3">
@@ -571,12 +601,15 @@ export default function App() {
                   sortBy={tableSortBy}
                   extraField={filters.sort?.field}
                   bandOptions={bandOptions}
+                  typeOptions={typeOptions}
+                  onAddType={handleAddType}
                   selectMode={selectMode}
                   selected={selected}
                   onToggleRow={toggleRowSelect}
                   onToggleAll={toggleAllSelect}
                   templates={templates}
                   languages={settings.languages}
+                  settings={settings}
                   onQuickDraft={handleQuickDraft}
                   draftingIdx={draftingIdx}
                   draftResults={draftResults}
@@ -599,6 +632,7 @@ export default function App() {
           selectedCount={selected.size}
           filteredCount={filteredRows.length}
           bandOptions={bandOptions}
+          typeOptions={typeOptions}
           onSelectAllFiltered={() => toggleAllSelect(filteredRows.map(r => r._idx), true)}
           onClear={() => setSelected(new Set())}
           onBulkEdit={handleBulkEdit}
@@ -615,6 +649,7 @@ export default function App() {
           filteredRows={filteredRows}
           templates={templates}
           languages={settings.languages}
+          settings={settings}
           onDraftCreated={recordDraft}
           onClearDraftFlags={clearDraftFlags}
           onClose={() => setShowBulkDraft(false)}
@@ -647,8 +682,11 @@ export default function App() {
           onDismissDuplicate={handleDismiss}
           onOpenMerge={handleOpenMerge}
           bandOptions={bandOptions}
+          typeOptions={typeOptions}
+          onAddType={handleAddType}
           templates={templates}
           languages={settings.languages}
+          settings={settings}
           draftedAtIso={draftedAt(settings, rows.find(r => r._idx === venueDetail) || {})}
           onDraftCreated={recordDraft}
           onOpenMap={() => {

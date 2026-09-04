@@ -102,6 +102,7 @@ export default function TemplatesManager({ settings, rows = [], onClose }) {
             template={editing}
             bandOptions={bandOptions}
             languages={languages}
+            settings={settings}
             rows={rows}
             onSave={handleSave}
             onCancel={() => setEditing(null)}

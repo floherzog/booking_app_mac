@@ -38,7 +38,7 @@ const PAIRS = [
 ]
 
 // Mac-only modules with no webapp counterpart — nothing to compare against.
-const MAC_ONLY = ['rules.js', 'logicTree.js', 'templates.js', 'emailHtml.js', 'htmlText.js', 'videoLink.js']
+const MAC_ONLY = ['rules.js', 'logicTree.js', 'templates.js', 'emailHtml.js', 'htmlText.js', 'videoLink.js', 'venueTypes.js']
 
 // Mechanical differences that carry no meaning: this repo writes explicit .js
 // extensions on relative imports so src/core also loads in plain Node.
