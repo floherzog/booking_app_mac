@@ -7,6 +7,20 @@ creates personalised drafts in Apple Mail.
 It is a port of an internal React web app, rebuilt so it runs on any Mac without
 the private repositories, tokens and servers the original depended on.
 
+## Download
+
+**[Download the latest release →](https://github.com/floherzog/booking_app_mac/releases/latest)**
+
+Take `Booking-<version>-arm64.dmg` for Apple Silicon or `Booking-<version>-x64.dmg`
+for an Intel Mac, and drag Booking into Applications.
+
+> **The first launch needs a right-click → Open**, then *Open* in the dialog.
+> The app is ad-hoc signed but not notarised, so double-clicking it will just be
+> blocked. On macOS 15 and later you may instead have to go to *System Settings →
+> Privacy & Security* and press **Open Anyway**. Once only.
+
+Afterwards, **Booking → Check for Updates…** tells you when there is a newer one.
+
 ## What it does
 
 - **Classifies every venue** — Send, Follow-up due, Waiting, Recently played,
@@ -20,7 +34,7 @@ the private repositories, tokens and servers the original depended on.
   is ever sent.
 - **Map view** of your venues, with offline-seeded coordinates.
 
-## Getting started
+## Building it yourself
 
 Requires Node 20+ and macOS.
 
