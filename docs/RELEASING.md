@@ -78,7 +78,9 @@ open /tmp/Booking.app
 ```
 
 It must **not** say "damaged". The expected result is the "Apple could not
-verify…" dialog, which right-click → Open gets past.
+verify…" dialog, which *System Settings → Privacy & Security → Open Anyway*
+gets past. (Right-click → Open no longer works: Apple removed that bypass in
+macOS 15.)
 
 ## 5. Publish
 
@@ -95,8 +97,9 @@ What changed…
 
 **Installing:** download the arm64 .dmg (Apple Silicon) or the x64 .dmg (Intel),
 drag Booking into Applications, replacing the old copy. The first launch needs a
-**right-click → Open** — the app is signed ad-hoc, not notarised. On macOS 15 and
-later you may instead need *System Settings → Privacy & Security → Open Anyway*.
+one approval: double-click, let it be blocked by "Apple could not verify…", then
+go to *System Settings → Privacy & Security* and press **Open Anyway**. The app is
+ad-hoc signed but not notarised. (Right-click → Open stopped working in macOS 15.)
 EOF
 )"
 ```

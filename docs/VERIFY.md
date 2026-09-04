@@ -162,7 +162,9 @@ Artifacts land in `~/Builds/booking_app_mac/`, not in the repo — see
 - [ ] Publish a release (docs/RELEASING.md), then **download the DMG from
       GitHub** — the download is what applies the real quarantine flag — and
       install it on a **different** account or Mac.
-- [ ] First launch: right-click → Open (see the README's install section). The
+- [ ] First launch: blocked by "Apple could not verify…", then allowed via
+      System Settings → Privacy & Security → Open Anyway (macOS 15+; right-click
+      → Open no longer works). The
       storage picker appears.
 - [ ] Data lands in `~/Library/Application Support/Booking/` —
       `settings.json`, `geo_cache.json`, `templates/`.

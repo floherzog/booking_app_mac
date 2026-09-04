@@ -14,10 +14,16 @@ the private repositories, tokens and servers the original depended on.
 Take `Booking-<version>-arm64.dmg` for Apple Silicon or `Booking-<version>-x64.dmg`
 for an Intel Mac, and drag Booking into Applications.
 
-> **The first launch needs a right-click → Open**, then *Open* in the dialog.
-> The app is ad-hoc signed but not notarised, so double-clicking it will just be
-> blocked. On macOS 15 and later you may instead have to go to *System Settings →
-> Privacy & Security* and press **Open Anyway**. Once only.
+> **The first launch has to be approved once.** The app is ad-hoc signed but not
+> notarised, so macOS blocks it with *"Apple could not verify Booking is free of
+> malware"*. Double-click it, let it be blocked, then go to **System Settings →
+> Privacy & Security**, scroll to the bottom, and press **Open Anyway**.
+>
+> Right-click → Open used to do this in one step, but **Apple removed that
+> bypass in macOS 15**; on Sequoia and later, Privacy & Security is the only way
+> through. If you would rather not deal with it at all,
+> `xattr -cr /Applications/Booking.app` in Terminal removes the quarantine flag
+> and the app opens normally from then on.
 
 Afterwards, **Booking → Check for Updates…** tells you when there is a newer one.
 
@@ -202,17 +208,22 @@ refuse to sign the bundle at all.
 | `Booking-<version>-arm64.zip` | Apple Silicon, if a zip is easier to send |
 
 The app is **ad-hoc signed and not notarised**, so the first launch on someone
-else's Mac needs one deliberate override:
+else's Mac needs one deliberate override. `spctl -a` reporting *rejected* is the
+expected state for such a build, not a fault:
 
-- **Right-click → Open** on the app, then *Open* in the dialog. Once only.
-- **macOS 15 (Sequoia) and later:** double-click, let it be blocked, then go to
-  *System Settings → Privacy & Security*, scroll to the bottom, and press
-  **Open Anyway**.
-- Last resort, if something has gone wrong with the signature:
+- **macOS 15 (Sequoia) and later** — the only supported path: double-click, let
+  it be blocked by *"Apple could not verify …"*, then go to *System Settings →
+  Privacy & Security*, scroll to the bottom, and press **Open Anyway**.
+- **macOS 14 and earlier:** right-click → Open, then *Open* in the dialog.
+  Apple removed this bypass in macOS 15, so do not tell a Sequoia user to do it.
+- To avoid the prompt altogether, clear the quarantine flag the download added:
 
   ```sh
   xattr -cr /Applications/Booking.app
   ```
+
+Only **notarisation** removes the warning for everyone without these steps, and
+that needs a paid Apple Developer Program membership — see below.
 
 Prefer the DMG when sending a build: a DMG carries one quarantine flag on the
 image, whereas an extracted zip flags every file inside it.

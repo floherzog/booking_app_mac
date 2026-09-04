@@ -67,7 +67,10 @@ async function promptForUpdate() {
   const { response } = await dialog.showMessageBox(parent, {
     type: 'info',
     message: `Booking ${result.latest} is available.`,
-    detail: `You are running ${result.current}.\n\nDownload the .dmg, drag it to Applications and replace the old copy. The first launch needs a right-click → Open.${result.notes ? `\n\n${String(result.notes).slice(0, 600)}` : ''}`,
+    // Note the install steps rather than assume they are remembered: macOS 15
+    // removed the right-click → Open bypass, so Privacy & Security is now the
+    // only way past the "could not verify" block an unnotarised app gets.
+    detail: `You are running ${result.current}.\n\nDownload the .dmg, drag it to Applications and replace the old copy.\n\nThe first launch is blocked with "Apple could not verify…" — open System Settings → Privacy & Security and press "Open Anyway".${result.notes ? `\n\n${String(result.notes).slice(0, 600)}` : ''}`,
     buttons: ['Download', 'Later'],
     defaultId: 0,
     cancelId: 1,
