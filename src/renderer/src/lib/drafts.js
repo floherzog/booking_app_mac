@@ -52,6 +52,22 @@ export async function createDraft(row, templates, languages, settings) {
   return { ...result, prepared }
 }
 
+// Send a prepared message over SMTP. Unlike a draft this is irreversible, and
+// the caller is expected to record it on the row ('Last emailed').
+export async function sendEmail(row, templates, languages, settings) {
+  const prepared = prepareDraft(row, templates, languages, settings)
+  if (!prepared.ok) throw new Error(prepared.reason)
+  const result = await window.bookingApi.sendMail(prepared.draft)
+  return { ...result, prepared }
+}
+
+// One prepared message, delivered the way the run's mode asked for.
+export function deliverPrepared(prepared, delivery) {
+  return delivery === 'send'
+    ? window.bookingApi.sendMail(prepared.draft)
+    : window.bookingApi.appendDraft(prepared.draft)
+}
+
 // The AppleScript fallback: no server configuration, but it drives Mail's UI, so
 // it is offered for one venue at a time only.
 export async function createDraftViaAppleScript(row, templates, languages, settings) {

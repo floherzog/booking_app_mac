@@ -132,6 +132,47 @@ above all others:
 - [ ] The thumbnail arrives in the actual draft as an inline image (not a broken
       remote one) — see VERIFY-MAIL.md.
 
+## Settings panel
+
+- [ ] Press **Save**: the panel stays open, the footer shows *Saved*, and the
+      change is in effect (e.g. a rules change re-badges the table behind it).
+- [ ] Click the dimmed area outside the panel — nothing closes.
+- [ ] With unsaved edits the left button reads *Discard & close*; with none it
+      reads *Close*.
+- [ ] Settings ▸ Templates ▸ *Manage email templates…* → the manager shows
+      **← Settings**, which returns to the panel. Editing a template shows
+      **← Templates**. Opening the manager from the toolbar shows neither.
+- [ ] Settings ▸ Data ▸ *Import CSV* → same **← Settings**, and the wizard's own
+      Back still steps through its pages first.
+
+## Sending and scheduling
+
+- [ ] Settings ▸ Mail: SMTP server/port are prefilled; *Test connection* still
+      only tests IMAP.
+- [ ] ✉ Drafts ▸ **Auto column decides**: rows flagged `Auto` show a red *send*
+      badge, the rest *draft*, and the button reads "Send n, draft m".
+- [ ] The send button needs a second, red click before anything goes out.
+- [ ] Run it on **one** test venue with your own address as the Email: the mail
+      arrives, formatting and inline images intact, a copy is in Sent, and the
+      row now has an unsaved `Last emailed` = today which Save writes to the CSV.
+- [ ] **At a time…** two minutes out → the run appears in the pending list;
+      cancelling it removes it and nothing is sent.
+- [ ] Schedule another two minutes out, leave the app open: it fires on its own,
+      and the results land on the rows (draft log / `Last emailed`).
+- [ ] Schedule one, quit the app before it fires, reopen after the time has
+      passed: it runs once at launch and is not repeated on the next launch.
+- [ ] A venue detail's ⋯ menu ▸ *Send now instead* asks for confirmation first.
+
+## Import as the source of truth
+
+- [ ] Import a CSV as *Replace the table* with **Use this file as my CSV from now
+      on** ticked → Settings ▸ Storage now points at that file, Save writes to
+      it, and relaunching loads from it.
+- [ ] The same import with the box unticked leaves Storage pointing where it was,
+      and Save writes the imported rows into the old file.
+- [ ] The option is hidden when adding to the existing table rather than
+      replacing it.
+
 ## Contact fallback
 
 - [ ] Settings ▸ Templates: set the German fallback to `{{venue}} Team`.
@@ -162,6 +203,13 @@ Artifacts land in `~/Builds/booking_app_mac/`, not in the repo — see
 - [ ] Publish a release (docs/RELEASING.md), then **download the DMG from
       GitHub** — the download is what applies the real quarantine flag — and
       install it on a **different** account or Mac.
+- [ ] First launch on a Mac that has never seen this build: it may bounce in the
+      Dock for minutes while macOS scans the bundle. Time it; it must happen only
+      once. `xattr -cr` on a second copy should skip the wait entirely.
+- [ ] After an update, the keychain may ask once whether Booking can use the
+      stored token/password (ad-hoc signature ⇒ new identity). *Always Allow*,
+      and confirm GitHub/IMAP still work without re-entering them.
+- [ ] `settings.json`, `templates/` and `schedule.json` survive replacing the app.
 - [ ] First launch: blocked by "Apple could not verify…", then allowed via
       System Settings → Privacy & Security → Open Anyway (macOS 15+; right-click
       → Open no longer works). The

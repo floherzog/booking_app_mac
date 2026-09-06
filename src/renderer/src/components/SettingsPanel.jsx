@@ -43,6 +43,15 @@ export default function SettingsPanel({ config, rows = [], onOpenImport, onOpenT
   const [testing, setTesting] = useState(false)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
+  const [savedAt, setSavedAt] = useState(0)
+
+  // The "Saved" confirmation is the only feedback now that Save no longer
+  // closes the panel, so it has to fade on its own.
+  useEffect(() => {
+    if (!savedAt) return undefined
+    const t = setTimeout(() => setSavedAt(0), 2500)
+    return () => clearTimeout(t)
+  }, [savedAt])
 
   const bands = form.bands || []
   const venueTypes = form.venueTypes || []
@@ -50,6 +59,10 @@ export default function SettingsPanel({ config, rows = [], onOpenImport, onOpenT
   const storage = form.storage || {}
   const mail = form.mail || {}
   const ruleErrors = validateRules(form.rules)
+  // Cheap and good enough: the form is a few kB of plain JSON, and this only
+  // drives the footer label.
+  const dirty = JSON.stringify(form) !== JSON.stringify(config)
+    || !!githubToken.trim() || !!imapPassword.trim()
 
   useEffect(() => {
     window.bookingApi.hasSecret('githubToken').then(setHasGithubToken).catch(() => {})
@@ -83,8 +96,14 @@ export default function SettingsPanel({ config, rows = [], onOpenImport, onOpenT
     try {
       if (githubToken.trim()) await window.bookingApi.setSecret('githubToken', githubToken.trim())
       if (imapPassword.trim()) await window.bookingApi.setSecret('imapPassword', imapPassword.trim())
-      await onSave(form)
-      onClose()
+      const saved = await onSave(form)
+      // Saving deliberately leaves the panel open — settings are usually
+      // adjusted in batches. Adopt whatever main actually stored so the form
+      // stops reading as dirty.
+      if (saved) setForm(saved)
+      if (githubToken.trim()) { setGithubToken(''); setHasGithubToken(true) }
+      if (imapPassword.trim()) { setImapPassword(''); setHasImapPassword(true) }
+      setSavedAt(Date.now())
     } catch (err) {
       setError(err.message)
     } finally {
@@ -200,7 +219,9 @@ export default function SettingsPanel({ config, rows = [], onOpenImport, onOpenT
   const outlineBtn = 'py-1.5 px-3 rounded-md text-sm font-medium border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:border-gray-400 dark:hover:border-gray-500 disabled:opacity-40 transition-colors'
 
   return (
-    <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-[1100] p-4" onClick={onClose}>
+    // No backdrop click-to-close: settings hold unsaved edits, and losing them to
+    // a stray click outside the panel is not a recoverable mistake.
+    <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-[1100] p-4">
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-3xl max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 dark:border-gray-700">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Settings</h2>
@@ -615,6 +636,23 @@ export default function SettingsPanel({ config, rows = [], onOpenImport, onOpenT
                     </div>
                   </div>
 
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="col-span-2">
+                      <label className={lbl}>SMTP server (only used when you send)</label>
+                      <input className={monoInput} value={mail.smtpHost || ''} placeholder="smtp.mail.me.com"
+                        onChange={e => setMail({ smtpHost: e.target.value })} />
+                    </div>
+                    <div>
+                      <label className={lbl}>Port</label>
+                      <input className={monoInput} value={mail.smtpPort ?? 587}
+                        onChange={e => setMail({ smtpPort: parseInt(e.target.value, 10) || '' })} />
+                    </div>
+                  </div>
+                  <p className="text-xs text-gray-400 dark:text-gray-500 -mt-1">
+                    Same account and password as above; 587 is STARTTLS, 465 implicit TLS. Sent mail is
+                    also filed in your Sent mailbox.
+                  </p>
+
                   <div>
                     <label className={lbl}>Username (your full email address)</label>
                     <input className={monoInput} value={mail.user || ''} placeholder="you@icloud.com"
@@ -668,6 +706,15 @@ export default function SettingsPanel({ config, rows = [], onOpenImport, onOpenT
                     </p>
                   </div>
 
+                  <div>
+                    <label className={lbl}>Sent mailbox</label>
+                    <input className={monoInput} value={mail.sentMailbox || ''} placeholder="found automatically — or type a name"
+                      onChange={e => setMail({ sentMailbox: e.target.value })} />
+                    <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
+                      Where a copy of a sent message is filed. Left blank, the mailbox your server marks as Sent.
+                    </p>
+                  </div>
+
                   <div className="flex items-center gap-3">
                     <button type="button" onClick={testMail} disabled={testing} className={outlineBtn}>
                       {testing ? 'Connecting…' : 'Test connection'}
@@ -698,12 +745,20 @@ export default function SettingsPanel({ config, rows = [], onOpenImport, onOpenT
           </div>
 
           <div className="px-6 py-4 border-t border-gray-100 dark:border-gray-700 flex items-center justify-between gap-3">
-            <p className="text-xs text-red-600 dark:text-red-400 min-h-[1rem]">
-              {error || (ruleErrors.length > 0 ? `${ruleErrors.length} problem${ruleErrors.length !== 1 ? 's' : ''} in Rules` : '')}
+            <p className="text-xs min-h-[1rem]">
+              {error || ruleErrors.length > 0 ? (
+                <span className="text-red-600 dark:text-red-400">
+                  {error || `${ruleErrors.length} problem${ruleErrors.length !== 1 ? 's' : ''} in Rules`}
+                </span>
+              ) : savedAt ? (
+                <span className="text-green-600 dark:text-green-400">Saved</span>
+              ) : dirty ? (
+                <span className="text-gray-400 dark:text-gray-500">Unsaved changes</span>
+              ) : null}
             </p>
             <div className="flex gap-3 shrink-0">
               <button type="button" onClick={onClose} className="text-sm text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200">
-                Cancel
+                {dirty ? 'Discard & close' : 'Close'}
               </button>
               <button
                 type="submit"

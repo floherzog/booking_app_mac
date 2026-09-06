@@ -49,7 +49,10 @@ export async function testConnectionWith(client, settings) {
   return { mailboxes, suggestion: resolveDraftsMailbox(mailboxes, settings.mail?.draftsMailbox) }
 }
 
-export async function appendDraftWith(client, settings, { to, subject, html, cids = [] }, resolveAsset = assetPath) {
+// The RFC822 bytes for one venue's mail. Shared by the draft path and the SMTP
+// send path, so a sent message is byte-for-byte the message the draft would
+// have been.
+export async function buildOutgoingMime(settings, { to, subject, html, cids = [] }, resolveAsset = assetPath) {
   const mail = settings.mail || {}
 
   // cids arrive as [{ cid, assetId }] from renderEmailHtml; main is the only
@@ -60,7 +63,7 @@ export async function appendDraftWith(client, settings, { to, subject, html, cid
     if (path) inlineAssets.push({ path, cid })
   }
 
-  const mime = await buildDraftMime({
+  return buildDraftMime({
     from: { name: mail.fromName, address: mail.fromAddress || mail.user },
     to,
     subject,
@@ -68,6 +71,11 @@ export async function appendDraftWith(client, settings, { to, subject, html, cid
     text: htmlToText(html),
     inlineAssets,
   })
+}
+
+export async function appendDraftWith(client, settings, payload, resolveAsset = assetPath) {
+  const mail = settings.mail || {}
+  const mime = await buildOutgoingMime(settings, payload, resolveAsset)
 
   const mailbox = resolveDraftsMailbox(mailboxSummary(await client.list()), mail.draftsMailbox)
 
@@ -79,7 +87,7 @@ export async function appendDraftWith(client, settings, { to, subject, html, cid
 
 // A connection per call takes 1–2s. Pooling is a later optimization; correctness
 // and never leaving a socket open matter more here.
-async function withClient(fn) {
+export async function withImapClient(fn) {
   const settings = readSettings()
   const { host, port, user } = settings.mail || {}
   if (!host) throw new Error('No IMAP server configured. Fill in Settings → Mail.')
@@ -108,12 +116,35 @@ async function withClient(fn) {
   }
 }
 
+// The operation itself, callable from the scheduler as well as over IPC.
+export function appendDraftNow(payload) {
+  return withImapClient((client, settings) => appendDraftWith(client, settings, payload))
+}
+
+// Filing a sent message in Sent is a courtesy, never a reason to report the
+// send as failed — SMTP has already accepted it by the time this runs.
+export function resolveSentMailbox(mailboxes, configured) {
+  if (configured) return configured
+  const special = (mailboxes || []).find(m => m.specialUse === '\\Sent')
+  if (special) return special.path
+  const named = (mailboxes || []).find(m => ['sent', 'sent messages', 'sent items'].includes((m.path || '').toLowerCase()))
+  return named ? named.path : 'Sent Messages'
+}
+
+export async function appendToSent(mime) {
+  return withImapClient(async (client, settings) => {
+    const mailbox = resolveSentMailbox(mailboxSummary(await client.list()), settings.mail?.sentMailbox)
+    const res = await client.append(mailbox, mime, ['\\Seen'])
+    return { mailbox, uid: res?.uid ?? null }
+  })
+}
+
 export function registerMailImapIpc() {
   // → { mailboxes: [{ path, specialUse }], suggestion }
-  ipcMain.handle('mail:testConnection', () => withClient(testConnectionWith))
+  ipcMain.handle('mail:testConnection', () => withImapClient(testConnectionWith))
 
   // { to, subject, html, cids } → { mailbox, uid }
   ipcMain.handle('mail:appendDraft', (_e, payload) =>
-    withClient((client, settings) => appendDraftWith(client, settings, payload)),
+    appendDraftNow(payload),
   )
 }

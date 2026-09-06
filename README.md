@@ -25,7 +25,31 @@ for an Intel Mac, and drag Booking into Applications.
 > `xattr -cr /Applications/Booking.app` in Terminal removes the quarantine flag
 > and the app opens normally from then on.
 
+> **The first launch can be slow — minutes, not seconds.** Before macOS runs an
+> app it has never seen, it scans the whole bundle, and Booking is a ~300 MB
+> Electron app. On a slower Mac that scan has taken **ten minutes of bouncing in
+> the Dock** before the window appeared; it only happens once, and every launch
+> afterwards is instant. `xattr -cr /Applications/Booking.app` before the first
+> launch skips it. Also make sure you took the right build: running the **x64**
+> DMG on an Apple Silicon Mac makes macOS translate the whole app through Rosetta
+> on first launch, which is slow for the same reason and stays slower afterwards.
+
 Afterwards, **Booking → Check for Updates…** tells you when there is a newer one.
+
+## What an update keeps
+
+Updating means replacing `Booking.app` in Applications. Nothing you own lives
+inside the app bundle, so nothing is lost:
+
+- **Your CSV** is wherever you put it. Untouched.
+- **`settings.json`** — rules, bands, templates options, mail settings, storage
+  choice — lives in `~/Library/Application Support/Booking/` and is read by the
+  new version. New settings appear with their defaults; old ones are kept.
+- **Templates and their images** live in the same folder.
+- **The GitHub token and mail password** stay in the keychain. Because the app is
+  ad-hoc signed, each build is a *different* app as far as the keychain is
+  concerned, so macOS may ask once after an update whether Booking may use them —
+  answer **Always Allow**. (A Developer ID signature would remove that prompt.)
 
 ## What it does
 
@@ -36,8 +60,9 @@ Afterwards, **Booking → Check for Updates…** tells you when there is a newer
   yours to change, and the app re-classifies as you change them.
 - **Email templates per band and language**, with light rich text, inline
   images, and `{{placeholders}}` filled in per venue.
-- **Drafts straight into Apple Mail**, one venue at a time or in bulk. Nothing
-  is ever sent.
+- **Drafts straight into Apple Mail**, one venue at a time or in bulk — or send
+  for real over SMTP, now or at a scheduled time, with the `Auto` column
+  deciding per venue.
 - **Map view** of your venues, with offline-seeded coordinates.
 
 ## Building it yourself
@@ -74,6 +99,7 @@ Everything else sits in `~/Library/Application Support/Booking/`:
 | --- | --- |
 | `settings.json` | storage choice, rules, bands, languages, mail settings, draft log |
 | `secrets.json` | GitHub token and mail password, encrypted (see below) |
+| `schedule.json` | scheduled bulk runs, with their rendered messages |
 | `geo_cache.json` | city → coordinates, seeded from the bundled snapshot |
 | `templates/` | `templates.json` plus `assets/` for inline images |
 
@@ -81,6 +107,11 @@ Everything else sits in `~/Library/Application Support/Booking/`:
 
 **Local CSV file** (default) — pick any file with the native picker. Put it in
 iCloud Drive to have it on all your Macs.
+
+> Importing a CSV only fills the table; the file you imported is not
+> automatically the file the app saves to. When you import as *Replace the
+> table*, tick **"Use this file as my CSV from now on"** to point Storage at it —
+> then Save writes back to that file and the app reloads from it next time.
 
 > **iCloud Drive caveat.** Do not edit the same file in two places at once.
 > The app records the file's modification time when it loads and refuses to save
@@ -149,8 +180,9 @@ play an embedded video.
 
 ## Apple Mail drafts
 
-Drafts land in your Drafts mailbox. **Nothing is ever sent**, and creating a
-draft never touches a venue's `Last emailed` — a draft is not a sent email.
+Drafts land in your Drafts mailbox, and creating a draft never touches a venue's
+`Last emailed` — a draft is not a sent email. Sending is a separate, explicit
+choice; see *Sending, and scheduling a run* below.
 
 ### IMAP (recommended)
 
@@ -175,6 +207,35 @@ what your filters are showing), review the preflight list, and let it work
 through them one at a time.
 
 Drafts can take a few seconds to sync into Mail.app.
+
+### Sending, and scheduling a run
+
+The bulk window can also send. Three modes:
+
+| Mode | What happens |
+| --- | --- |
+| **Drafts only** | The default. Everything lands in Drafts; `Last emailed` untouched. |
+| **Auto column decides** | Venues with `Auto` = TRUE are sent, every other venue is drafted. |
+| **Send now** | Every selected venue is emailed. |
+
+Sending goes out over SMTP (**Settings → Mail** → SMTP server, prefilled
+`smtp.mail.me.com:587`) using the same account and app-specific password as IMAP,
+and files a copy in your Sent mailbox. The message is byte-for-byte the one the
+draft would have been — the same MIME is built once and either APPENDed or sent.
+A run that includes sends needs a second click on the red confirm button, and a
+sent venue gets an **unsaved `Last emailed` edit** that reaches the CSV when you
+press Save, like every other change.
+
+**At a time…** schedules the run instead. Every message is rendered when you
+schedule it, so a template edit afterwards cannot change what goes out, and the
+queue is stored in `schedule.json`. Pending runs are listed in the same window
+and can be cancelled there.
+
+> A scheduled run only fires **while Booking is running**. One whose time passed
+> while the app was closed runs at the next launch rather than being skipped —
+> this is an in-app scheduler, not a background agent.
+
+A single venue can also be sent from the **⋯** menu next to *Draft in Mail*.
 
 ### AppleScript fallback
 

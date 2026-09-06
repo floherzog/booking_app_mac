@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 
 // The only channels main is allowed to push to the renderer. Keeping this an
 // explicit allowlist means `onMenu` can never be turned into a general
@@ -21,6 +21,13 @@ const api = {
   pickCsvOpen: () => ipcRenderer.invoke('dialog:pickCsvOpen'),
   pickCsvSave: defaultName => ipcRenderer.invoke('dialog:pickCsvSave', defaultName),
 
+  // The real path behind a <input type="file"> File. The renderer cannot get
+  // this itself any more (File.path was removed), and the import wizard needs it
+  // to offer "use this file as my CSV from now on".
+  filePathFor: file => {
+    try { return webUtils.getPathForFile(file) || '' } catch { return '' }
+  },
+
   // Local CSV file storage
   readCsvFile: path => ipcRenderer.invoke('storage:readCsvFile', path),
   writeCsvFile: args => ipcRenderer.invoke('storage:writeCsvFile', args),
@@ -42,6 +49,7 @@ const api = {
   // Apple Mail drafts
   testMailConnection: () => ipcRenderer.invoke('mail:testConnection'),
   appendDraft: args => ipcRenderer.invoke('mail:appendDraft', args),
+  sendMail: args => ipcRenderer.invoke('mail:send', args),
   appleScriptDraft: args => ipcRenderer.invoke('mail:appleScriptDraft', args),
   appleScriptCheck: () => ipcRenderer.invoke('mail:appleScriptCheck'),
 
@@ -53,6 +61,11 @@ const api = {
   checkForUpdates: () => ipcRenderer.invoke('updates:check'),
   getAppVersion: () => ipcRenderer.invoke('app:version'),
 
+  // Scheduled bulk runs (drafts and/or sends at a chosen time)
+  listScheduledRuns: () => ipcRenderer.invoke('schedule:list'),
+  scheduleRun: spec => ipcRenderer.invoke('schedule:add', spec),
+  cancelScheduledRun: id => ipcRenderer.invoke('schedule:cancel', id),
+
   openExternal: url => ipcRenderer.invoke('app:openExternal', url),
 
   // Menu → renderer. Returns an unsubscribe function for use in a useEffect.
@@ -61,6 +74,14 @@ const api = {
     const handler = () => cb()
     ipcRenderer.on(channel, handler)
     return () => ipcRenderer.removeListener(channel, handler)
+  },
+
+  // The scheduler in main reports back here: a run fired, or the queue changed.
+  // Same one-channel-per-purpose rule as onMenu — no general subscribe.
+  onScheduleUpdate: cb => {
+    const handler = (_e, payload) => cb(payload)
+    ipcRenderer.on('schedule:updated', handler)
+    return () => ipcRenderer.removeListener('schedule:updated', handler)
   },
 }
 

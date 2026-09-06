@@ -29,10 +29,15 @@ export const DEFAULT_SETTINGS = {
   mail: {
     host: 'imap.mail.me.com',
     port: 993,
+    // Sending reuses the same account and the same app-specific password; only
+    // the server differs. 587 is STARTTLS, 465 implicit TLS.
+    smtpHost: 'smtp.mail.me.com',
+    smtpPort: 587,
     user: '',
     fromAddress: '',
     fromName: '',
     draftsMailbox: '',
+    sentMailbox: '',
   },
   dismissedDupes: [],
   draftLog: {},                // 'Venue||City||Band' → ISO timestamp

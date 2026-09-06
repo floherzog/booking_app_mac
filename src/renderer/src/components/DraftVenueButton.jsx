@@ -1,28 +1,31 @@
 import { useState, useMemo } from 'react'
 import RelDate from './RelDate'
-import { prepareDraft, createDraft, createDraftViaAppleScript } from '../lib/drafts'
+import { prepareDraft, createDraft, createDraftViaAppleScript, sendEmail } from '../lib/drafts'
 
 // The per-venue draft action. The IMAP path is primary; the AppleScript one sits
 // in the overflow because it drives Mail's window by keystroke and needs macOS
 // permissions, so it is only ever sensible for a single draft.
-export default function DraftVenueButton({ row, templates, languages, settings, draftedAtIso, onDraftCreated }) {
+export default function DraftVenueButton({ row, templates, languages, settings, draftedAtIso, onDraftCreated, onSent }) {
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState(null) // { ok, message }
   const [overflow, setOverflow] = useState(false)
+  const [confirmSend, setConfirmSend] = useState(false)
 
   const prepared = useMemo(
     () => prepareDraft(row, templates, languages, settings),
     [row, templates, languages, settings],
   )
 
-  async function run(fn, successMessage) {
+  async function run(fn, successMessage, { sent = false } = {}) {
     setBusy(true)
     setStatus(null)
     setOverflow(false)
+    setConfirmSend(false)
     try {
       await fn(row, templates, languages, settings)
       setStatus({ ok: true, message: successMessage })
-      onDraftCreated?.(row)
+      if (sent) onSent?.(row)
+      else onDraftCreated?.(row)
     } catch (e) {
       setStatus({ ok: false, message: e.message })
     } finally {
@@ -56,7 +59,7 @@ export default function DraftVenueButton({ row, templates, languages, settings, 
 
         <div className="relative">
           <button
-            onClick={() => setOverflow(v => !v)}
+            onClick={() => { setOverflow(v => !v); setConfirmSend(false) }}
             onBlur={() => setTimeout(() => setOverflow(false), 150)}
             disabled={!prepared.ok || busy}
             title="Other ways to create this draft"
@@ -66,6 +69,24 @@ export default function DraftVenueButton({ row, templates, languages, settings, 
           </button>
           {overflow && (
             <div className="absolute right-0 bottom-full mb-1 z-10 w-64 rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg py-1">
+              <button
+                onMouseDown={e => {
+                  e.preventDefault()
+                  // Two clicks rather than a system confirm(): this sits one item
+                  // away from the ordinary draft button, and Electron's modal
+                  // dialogs are worth avoiding in the renderer.
+                  if (!confirmSend) { setConfirmSend(true); return }
+                  run(sendEmail, 'Email sent', { sent: true })
+                }}
+                className="block w-full text-left px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-700 border-b border-gray-100 dark:border-gray-700"
+              >
+                <span className={`block text-xs ${confirmSend ? 'text-rose-600 dark:text-rose-400 font-medium' : 'text-gray-700 dark:text-gray-200'}`}>
+                  {confirmSend ? `Really send to ${row['Email']}?` : 'Send now instead'}
+                </span>
+                <span className="block text-[11px] text-gray-400 dark:text-gray-500">
+                  Goes out over SMTP immediately and stages a “Last emailed” edit.
+                </span>
+              </button>
               <button
                 onMouseDown={e => { e.preventDefault(); run(createDraftViaAppleScript, 'Compose window opened in Mail') }}
                 className="block w-full text-left px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-700"

@@ -3,6 +3,7 @@ import { app, shell, dialog, BrowserWindow, Menu, protocol, net } from 'electron
 import { pathToFileURL } from 'node:url'
 import { registerIpc } from './ipc/index.js'
 import { checkForUpdates } from './ipc/updates.js'
+import { startScheduler } from './scheduler.js'
 
 const isDev = !app.isPackaged
 
@@ -187,6 +188,9 @@ app.whenReady().then(() => {
   registerIpc()
   buildMenu()
   createWindow()
+  // Scheduled runs only fire while the app is open; this also picks up any that
+  // came due while it was closed.
+  startScheduler()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

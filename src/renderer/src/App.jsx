@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { classifyBooking } from '@core/classify'
 import { getSettings, saveSettings } from './lib/config'
 import { ACTION_STATUSES, getMissingFields, getMissingSeverity } from '@core/constants'
@@ -15,6 +15,7 @@ import TemplatesManager from './components/TemplatesManager'
 import BulkDraftModal from './components/BulkDraftModal'
 import { listTemplates } from './lib/templates'
 import { draftKey, draftedAt, createDraft } from './lib/drafts'
+import { formatDateDDMMYY } from '@core/parseDate'
 import StatsBar from './components/StatsBar'
 import FilterBar from './components/FilterBar'
 import BookingTable from './components/BookingTable'
@@ -42,6 +43,10 @@ export default function App() {
   const [promptNode, ask] = useInlinePrompt()
   const [showImport, setShowImport] = useState(false)
   const [showTemplates, setShowTemplates] = useState(false)
+  // Templates and Import are reachable both from Settings and on their own.
+  // When Settings opened one, it gets a "← Settings" button back to where the
+  // user came from.
+  const [cameFromSettings, setCameFromSettings] = useState(false)
   const [showBulkDraft, setShowBulkDraft] = useState(false)
   const [templates, setTemplates] = useState([])
   // Transient per-row draft feedback for the table action.
@@ -117,6 +122,25 @@ export default function App() {
     return () => { offSettings(); offTemplates() }
   }, [])
 
+  // The scheduler in main reports finished runs here, so a scheduled draft is
+  // logged and a scheduled send lands on its row exactly like an interactive one.
+  const onScheduleDone = useRef(null)
+  onScheduleDone.current = payload => {
+    if (payload?.reason !== 'completed') return
+    const failures = []
+    for (const result of payload.results || []) {
+      if (!result.ok) { failures.push(result.error); continue }
+      // Rows move between runs, so a result is matched by its venue key.
+      const row = rows.find(r => draftKey(r) === result.key)
+      if (!row) continue
+      if (result.delivery === 'send') recordSend(row)
+      else recordDraft(row)
+    }
+    if (failures.length) setError(`Scheduled run: ${failures.length} message${failures.length !== 1 ? 's' : ''} failed — ${failures[0]}`)
+  }
+  // Subscribed once; the ref keeps the handler looking at the current rows.
+  useEffect(() => window.bookingApi.onScheduleUpdate(p => onScheduleDone.current?.(p)), [])
+
   // Kick off the initial fetch once on mount. Fetching is a legitimate effect and the
   // setLoading/setRows calls inside load() are its whole purpose, so opt out of the
   // set-state-in-effect heuristic here (same rationale as the exhaustive-deps opt-out).
@@ -183,6 +207,8 @@ export default function App() {
     // A rules change reclassifies through the effect below; a storage change
     // means the venues themselves come from somewhere else now, so refetch.
     if (JSON.stringify(saved.storage) !== JSON.stringify(settings.storage)) await load(saved)
+    // Returned so the still-open panel can adopt exactly what was stored.
+    return saved
   }
 
   // A created draft is recorded in settings, never on the venue row: a draft
@@ -195,6 +221,12 @@ export default function App() {
       await persist({ ...current, draftLog: { ...current.draftLog, [draftKey(row)]: at } })
     } catch { /* the log is a convenience; a failed write must not break drafting */ }
   }, [persist])
+
+  // A sent email is the opposite of a draft: it belongs on the row. Staged as an
+  // ordinary edit so it goes through SaveModal like every other change.
+  function recordSend(row) {
+    handleEdit(row._idx, 'Last emailed', formatDateDDMMYY(new Date()))
+  }
 
   async function handleQuickDraft(row) {
     setDraftingIdx(row._idx)
@@ -254,7 +286,14 @@ export default function App() {
 
   // Replace the in-memory table with rows parsed from an uploaded CSV file.
   // Nothing is pushed to GitHub until the user hits Save.
-  function handleImport(importedRaw, mode = 'replace') {
+  async function handleImport(importedRaw, mode = 'replace', { adoptPath = null } = {}) {
+    // "Use this file as my CSV from now on": point storage at it and hand Save a
+    // fresh adapter for that path, so the very next Save writes the imported
+    // table back to the file it came from.
+    if (adoptPath) {
+      const saved = await persist({ ...settings, storage: { ...settings.storage, adapter: 'file', filePath: adoptPath } })
+      setAdapter(getAdapter(saved))
+    }
     if (mode === 'add') {
       // Append imported rows as new venues with fresh _idx past the current max,
       // keeping existing rows and any unsaved edits/deletions. Track them in
@@ -641,8 +680,25 @@ export default function App() {
         />
       )}
 
-      {showSettings && <SettingsPanel config={settings} rows={rows} onOpenImport={() => { setShowSettings(false); setShowImport(true) }} onOpenTemplates={() => { setShowSettings(false); setShowTemplates(true) }} onSave={handleSettingsSave} onPersist={form => persist({ ...settings, ...form })} onClose={() => setShowSettings(false)} />}
-      {showTemplates && <TemplatesManager settings={settings} rows={rows} onClose={() => { setShowTemplates(false); refreshTemplates() }} />}
+      {showSettings && (
+        <SettingsPanel
+          config={settings}
+          rows={rows}
+          onOpenImport={() => { setShowSettings(false); setCameFromSettings(true); setShowImport(true) }}
+          onOpenTemplates={() => { setShowSettings(false); setCameFromSettings(true); setShowTemplates(true) }}
+          onSave={handleSettingsSave}
+          onPersist={form => persist({ ...settings, ...form })}
+          onClose={() => setShowSettings(false)}
+        />
+      )}
+      {showTemplates && (
+        <TemplatesManager
+          settings={settings}
+          rows={rows}
+          onBack={cameFromSettings ? () => { setShowTemplates(false); setCameFromSettings(false); setShowSettings(true); refreshTemplates() } : null}
+          onClose={() => { setShowTemplates(false); setCameFromSettings(false); refreshTemplates() }}
+        />
+      )}
       {showBulkDraft && (
         <BulkDraftModal
           rows={rows}
@@ -651,11 +707,19 @@ export default function App() {
           languages={settings.languages}
           settings={settings}
           onDraftCreated={recordDraft}
+          onSent={recordSend}
           onClearDraftFlags={clearDraftFlags}
           onClose={() => setShowBulkDraft(false)}
         />
       )}
-      {showImport && <ImportWizard rows={rows} onImport={handleImport} onClose={() => setShowImport(false)} />}
+      {showImport && (
+        <ImportWizard
+          rows={rows}
+          onImport={handleImport}
+          onBack={cameFromSettings ? () => { setShowImport(false); setCameFromSettings(false); setShowSettings(true) } : null}
+          onClose={() => { setShowImport(false); setCameFromSettings(false) }}
+        />
+      )}
       {showSave && <SaveModal rows={rows} edits={edits} deletions={deletions} additions={additions} adapter={adapter} onSuccess={handleSaveSuccess} onClose={() => setShowSave(false)} />}
       {mergeTarget && (
         <MergeModal
@@ -689,6 +753,7 @@ export default function App() {
           settings={settings}
           draftedAtIso={draftedAt(settings, rows.find(r => r._idx === venueDetail) || {})}
           onDraftCreated={recordDraft}
+          onSent={recordSend}
           onOpenMap={() => {
             const row = rows.find(r => r._idx === venueDetail)
             setMapFocusRow(row)

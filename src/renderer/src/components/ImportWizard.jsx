@@ -7,9 +7,12 @@ import { guessMapping, applyMapping, mappedCount } from '@core/importMap'
 const NONE = '' // sentinel: "don't import this app column"
 const REQUIRED = ['Venue', 'Band', 'Email']
 
-export default function ImportWizard({ rows = [], onImport, onClose }) {
+export default function ImportWizard({ rows = [], onImport, onBack, onClose }) {
   const [step, setStep] = useState('file') // 'file' | 'mode' | 'map'
-  const [parsed, setParsed] = useState(null) // { headers, rows, name }
+  const [parsed, setParsed] = useState(null) // { headers, rows, name, path }
+  // Importing only fills the table; the file it came from is not the app's CSV
+  // unless this is ticked, in which case Save writes back to it from now on.
+  const [adopt, setAdopt] = useState(true)
   const [mode, setMode] = useState('replace') // 'replace' | 'add'
   const [mapping, setMapping] = useState({})
   const [error, setError] = useState('')
@@ -30,7 +33,7 @@ export default function ImportWizard({ rows = [], onImport, onClose }) {
         setBusy(false)
         return
       }
-      setParsed({ headers, rows: srcRows, name: file.name })
+      setParsed({ headers, rows: srcRows, name: file.name, path: window.bookingApi.filePathFor(file) })
       setMapping(guessMapping(headers))
       setStep(hasExisting ? 'mode' : 'map')
       if (!hasExisting) setMode('replace')
@@ -51,9 +54,13 @@ export default function ImportWizard({ rows = [], onImport, onClose }) {
     setMapping(m => ({ ...m, [appKey]: sourceHeader }))
   }
 
+  // Only meaningful when the whole table comes from this file: adopting the path
+  // while appending would silently point Save at a file that is missing rows.
+  const canAdopt = !!parsed?.path && mode === 'replace'
+
   function handleConfirm() {
     const mapped = applyMapping(parsed.rows, mapping)
-    onImport(mapped, mode)
+    onImport(mapped, mode, { adoptPath: canAdopt && adopt ? parsed.path : null })
     onClose()
   }
 
@@ -68,6 +75,15 @@ export default function ImportWizard({ rows = [], onImport, onClose }) {
       >
         <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between shrink-0">
           <div>
+            {/* Present only when Settings opened the wizard. */}
+            {onBack && (
+              <button
+                onClick={onBack}
+                className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 mb-1 -ml-1 px-1"
+              >
+                ← Settings
+              </button>
+            )}
             <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Import CSV</h2>
             {parsed && (
               <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5 truncate max-w-md">
@@ -162,6 +178,24 @@ export default function ImportWizard({ rows = [], onImport, onClose }) {
                   )
                 })}
               </div>
+              {canAdopt && (
+                <label className="flex items-start gap-2 rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={adopt}
+                    onChange={e => setAdopt(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-400"
+                  />
+                  <span>
+                    <span className="block text-sm text-gray-800 dark:text-gray-100">Use this file as my CSV from now on</span>
+                    <span className="block text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                      Storage switches to <span className="font-mono">{parsed.path}</span>, so Save writes back to it and
+                      the app reloads from it next time. Leave it off to import the rows into the CSV you already use.
+                    </span>
+                  </span>
+                </label>
+              )}
+
               <p className="text-xs text-gray-400 dark:text-gray-500">
                 <span className="text-rose-500">*</span> recommended for outreach — rows missing them still import,
                 but show as “Missing info”. Values are copied exactly as written.
@@ -176,11 +210,12 @@ export default function ImportWizard({ rows = [], onImport, onClose }) {
             onClick={() => {
               if (step === 'map' && hasExisting) setStep('mode')
               else if (step === 'mode') setStep('file')
+              else if (onBack) onBack()
               else onClose()
             }}
             className="text-sm text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 px-2 py-2"
           >
-            {step === 'file' ? 'Cancel' : 'Back'}
+            {step !== 'file' || onBack ? 'Back' : 'Cancel'}
           </button>
           {step === 'mode' && (
             <button

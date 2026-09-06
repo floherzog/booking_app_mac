@@ -311,7 +311,7 @@ function Field({ fieldDef, value, isEdited, onChange, row }) {
   )
 }
 
-export default function VenueDetailModal({ rowIndex, row, edits, onEdit, onClose, onDelete, duplicatePartners = [], onDismissDuplicate, onOpenMerge, onSave, editCount, onOpenMap, bandOptions = [], typeOptions = [], templates = [], languages, settings, draftedAtIso, onDraftCreated }) {
+export default function VenueDetailModal({ rowIndex, row, edits, onEdit, onClose, onDelete, duplicatePartners = [], onDismissDuplicate, onOpenMerge, onSave, editCount, onOpenMap, bandOptions = [], typeOptions = [], templates = [], languages, settings, draftedAtIso, onDraftCreated, onSent }) {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const rowEdits = edits[rowIndex] || {}
   const effective = { ...row, ...rowEdits }
@@ -441,6 +441,7 @@ export default function VenueDetailModal({ rowIndex, row, edits, onEdit, onClose
               settings={settings}
               draftedAtIso={draftedAtIso}
               onDraftCreated={onDraftCreated}
+              onSent={onSent}
             />
           {editCount > 0 ? (
             <button

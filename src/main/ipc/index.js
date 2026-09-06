@@ -6,8 +6,10 @@ import { registerGithubIpc } from './github.js'
 import { registerGeocacheIpc } from './geocache.js'
 import { registerTemplatesIpc } from './templates.js'
 import { registerMailImapIpc } from './mailImap.js'
+import { registerMailSmtpIpc } from './mailSmtp.js'
 import { registerMailAppleScriptIpc } from './mailAppleScript.js'
 import { registerUpdatesIpc } from './updates.js'
+import { registerScheduleIpc } from '../scheduler.js'
 
 // Every renderer→main call goes through ipcMain.handle. The preload re-exposes
 // exactly this list as window.bookingApi.* — the renderer never sees ipcRenderer.
@@ -25,8 +27,10 @@ export function registerIpc() {
   registerGeocacheIpc()
   registerTemplatesIpc()
   registerMailImapIpc()
+  registerMailSmtpIpc()
   registerMailAppleScriptIpc()
   registerUpdatesIpc()
+  registerScheduleIpc()
 
   ipcMain.handle('app:version', () => app.getVersion())
   ipcMain.handle('app:openExternal', (_e, url) => shell.openExternal(url))
