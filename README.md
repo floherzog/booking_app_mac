@@ -81,6 +81,7 @@ npm run dist     # build ad-hoc signed .dmg (arm64 + Intel) and .zip
 Other scripts:
 
 ```sh
+npm run clean:build   # delete the built .dmg/.zip once a release is published
 npm run check:drift   # diff src/core against the original web app (informational)
 npm run verify:csv    # prove the CSV format is still byte-compatible with it
 ```
@@ -226,14 +227,24 @@ A run that includes sends needs a second click on the red confirm button, and a
 sent venue gets an **unsaved `Last emailed` edit** that reaches the CSV when you
 press Save, like every other change.
 
-**At a time…** schedules the run instead. Every message is rendered when you
-schedule it, so a template edit afterwards cannot change what goes out, and the
-queue is stored in `schedule.json`. Pending runs are listed in the same window
-and can be cancelled there.
+**At a time…** schedules the run instead, and it can repeat — **every day** or
+**every week** at that time. A repeating run re-picks its venues every time it
+fires (today's next batch, today's follow-ups), so it stores the *source* rather
+than a fixed list; "Current view" is therefore not offered for one, since a set
+of filters cannot be reproduced next week. Repeating runs are executed by the
+app window itself, which is also what keeps a `Last emailed` edit staged for you
+to review before Save.
+
+A one-off **At a time…** run works the other way round: every message is rendered
+when you schedule it, so a template edit afterwards cannot change what goes out.
+Either way the queue is stored in `schedule.json`, and pending runs are listed in
+the same window and can be cancelled there.
 
 > A scheduled run only fires **while Booking is running**. One whose time passed
 > while the app was closed runs at the next launch rather than being skipped —
-> this is an in-app scheduler, not a background agent.
+> this is an in-app scheduler, not a background agent. A daily run missed for a
+> week fires once, then continues from the next slot; a run interrupted by
+> quitting the app is never replayed.
 
 A single venue can also be sent from the **⋯** menu next to *Draft in Mail*.
 

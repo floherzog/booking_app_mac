@@ -14,7 +14,8 @@ import FirstRun from './components/FirstRun'
 import TemplatesManager from './components/TemplatesManager'
 import BulkDraftModal from './components/BulkDraftModal'
 import { listTemplates } from './lib/templates'
-import { draftKey, draftedAt, createDraft } from './lib/drafts'
+import { draftKey, draftedAt, createDraft, prepareDraft, deliverPrepared } from './lib/drafts'
+import { selectRows, deliveryForRow } from '@core/delivery'
 import { formatDateDDMMYY } from '@core/parseDate'
 import StatsBar from './components/StatsBar'
 import FilterBar from './components/FilterBar'
@@ -124,11 +125,48 @@ export default function App() {
 
   // The scheduler in main reports finished runs here, so a scheduled draft is
   // logged and a scheduled send lands on its row exactly like an interactive one.
+  // A repeating run is executed here rather than in main: "every day at 08:00"
+  // has to mean today's venues and today's templates, which only the renderer
+  // has. Main hands over the recipe and waits for the report.
+  async function runScheduledRecipe(job) {
+    if (!settings || rows.length === 0) {
+      // Right after launch the table is still loading; put it back in the queue.
+      await window.bookingApi.reportScheduledRun(job.id, { deferred: true })
+      return
+    }
+    const picked = selectRows(job.recipe.source, { rows, filteredRows })
+    const results = []
+    for (const row of picked) {
+      const delivery = deliveryForRow(row, job.recipe.mode)
+      const key = draftKey(row)
+      const prepared = prepareDraft(row, templates, settings.languages, settings)
+      if (!prepared.ok) {
+        results.push({ key, delivery, ok: false, error: prepared.reason, local: true })
+        continue
+      }
+      try {
+        await deliverPrepared(prepared, delivery)
+        results.push({ key, delivery, ok: true, local: true })
+        if (delivery === 'send') recordSend(row)
+        else recordDraft(row)
+      } catch (e) {
+        results.push({ key, delivery, ok: false, error: e.message, local: true })
+      }
+    }
+    await window.bookingApi.reportScheduledRun(job.id, { results })
+  }
+
   const onScheduleDone = useRef(null)
   onScheduleDone.current = payload => {
+    if (payload?.reason === 'run' && payload.job?.recipe) {
+      runScheduledRecipe(payload.job).catch(e => setError(`Scheduled run: ${e.message}`))
+      return
+    }
     if (payload?.reason !== 'completed') return
     const failures = []
     for (const result of payload.results || []) {
+      // A repeating run already recorded its own outcome as it went.
+      if (result.local) { if (!result.ok) failures.push(result.error); continue }
       if (!result.ok) { failures.push(result.error); continue }
       // Rows move between runs, so a result is matched by its venue key.
       const row = rows.find(r => draftKey(r) === result.key)

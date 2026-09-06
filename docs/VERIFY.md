@@ -163,6 +163,23 @@ above all others:
       passed: it runs once at launch and is not repeated on the next launch.
 - [ ] A venue detail's ⋯ menu ▸ *Send now instead* asks for confirmation first.
 
+### Repeating runs
+
+- [ ] Pick **At a time…** ▸ *Every day*: the "Current view" source greys out, and
+      picking it beforehand switches back to Next batch.
+- [ ] Schedule a daily run for a time that has already passed today — the queue
+      shows tomorrow, not "immediately".
+- [ ] Schedule a daily *Drafts only* run two minutes out and leave the app open:
+      it fires, drafts appear, and the queue rolls forward to the same time
+      tomorrow (not to two minutes from now).
+- [ ] Change a template between the scheduling and the firing of a repeating run:
+      the drafts use the **new** template (a one-off run uses the old one).
+- [ ] Add a venue to the next batch after scheduling: the repeating run picks it
+      up. That is the difference from a one-off run.
+- [ ] Quit the app while a repeating run is mid-flight, reopen: it does not
+      re-run, and the queue shows the next slot.
+- [ ] Cancel a repeating run — it disappears from the queue and never fires again.
+
 ## Import as the source of truth
 
 - [ ] Import a CSV as *Replace the table* with **Use this file as my CSV from now
@@ -183,6 +200,15 @@ above all others:
       "Anna Müller": the greeting says "Anna".
 - [ ] Clear a language's fallback: that language goes back to the old behaviour
       (empty, and flagged in the preflight).
+
+## Build hygiene
+
+- [ ] `npm run clean:build -- --dry-run` lists only `Booking-*.dmg/.zip/.blockmap`,
+      `mac*/`, `builder-debug.yml` — and lists anything else as *left alone*.
+- [ ] Drop an unrelated file into `~/Builds/booking_app_mac/`, run the clean: the
+      file survives and the directory is kept.
+- [ ] With only artifacts present, `npm run clean:build` empties and removes the
+      directory.
 
 ## Packaged build
 

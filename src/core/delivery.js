@@ -1,3 +1,5 @@
+import { STATUS } from './constants.js'
+
 // How a bulk run turns into actual mail: a draft in the Drafts mailbox, or a
 // message that goes out over SMTP. Pure, so both the preflight list in the
 // renderer and the scheduler in main agree on what a run will do.
@@ -19,6 +21,32 @@ export const DELIVERY_MODES = [
     hint: 'Every selected venue is emailed immediately. There is no undo.',
   },
 ]
+
+// Where a bulk run gets its venues from. Each is a filter over the rows already
+// on screen, so what you see is what you draft.
+export const SOURCES = [
+  { id: 'nextBatch', label: 'Next batch', hint: 'The venues the batch rule picked, plus anything flagged Draft.' },
+  { id: 'followUp', label: 'Follow-ups due', hint: 'Every venue whose follow-up date has passed.' },
+  { id: 'draftFlag', label: 'Flagged “Draft”', hint: 'Rows with TRUE in the Draft column.' },
+  { id: 'filtered', label: 'Current view', hint: 'Exactly the rows your filters are showing right now.' },
+]
+
+export function selectRows(source, { rows = [], filteredRows = [] }) {
+  switch (source) {
+    case 'nextBatch': return rows.filter(r => r._nextBatch || r['Draft'] === 'TRUE')
+    case 'followUp': return rows.filter(r => r._status === STATUS.FOLLOW_UP_DUE)
+    case 'draftFlag': return rows.filter(r => r['Draft'] === 'TRUE')
+    case 'filtered': return filteredRows
+    default: return []
+  }
+}
+
+// A repeating run re-picks its venues every time it fires, so its source has to
+// be something that can be worked out again — "whatever the filters showed when
+// you set it up" cannot.
+export function sourceRepeats(source) {
+  return source !== 'filtered'
+}
 
 export function isAutoSend(row) {
   return String(row?.['Auto'] ?? '').trim().toUpperCase() === 'TRUE'
@@ -46,6 +74,35 @@ export function summarizeDelivery(rows, mode) {
 // A scheduled run only fires while the app is running. One that came due while
 // the app was closed is run on the next launch rather than skipped, which is
 // why "due" is `runAt <= now` and not a window around it.
+
+export const REPEAT_OPTIONS = [
+  { id: 'once', label: 'Once' },
+  { id: 'daily', label: 'Every day' },
+  { id: 'weekly', label: 'Every week' },
+]
+
+export function repeatLabel(repeat) {
+  return REPEAT_OPTIONS.find(r => r.id === repeat)?.label || 'Once'
+}
+
+// The next time a repeating run should fire, keeping the wall-clock time of the
+// original: stepping the date (rather than adding 24h) is what makes "every day
+// at 08:00" stay at 08:00 across a daylight-saving change.
+export function nextOccurrence(fromIso, repeat, now = new Date()) {
+  const step = repeat === 'daily' ? 1 : repeat === 'weekly' ? 7 : 0
+  if (!step) return null
+  const at = new Date(fromIso)
+  if (Number.isNaN(at.getTime())) return null
+  const nowMs = now instanceof Date ? now.getTime() : new Date(now).getTime()
+  // Always at least one step: the anchor is the run that just happened (or a
+  // start time already in the past), never the answer. A run missed for months
+  // then lands on the next future slot rather than firing once per missed slot.
+  let guard = 0
+  do {
+    at.setDate(at.getDate() + step)
+  } while (at.getTime() <= nowMs && guard++ < 5000)
+  return at.toISOString()
+}
 
 export function isPending(job) {
   return job?.status === 'pending'

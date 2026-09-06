@@ -34,6 +34,8 @@ git commit -am "Release 0.2.0"
 npm test && npm run build && npm run dist
 ```
 
+The artifacts are temporary: step 7 deletes them once the release is up.
+
 Artifacts land **outside the repo**, in `~/Builds/booking_app_mac/` — this repo
 lives in iCloud Drive, whose extended attributes make `codesign` refuse to sign
 the bundle (see the comment in `electron-builder.yml`). The rest of this file
@@ -108,3 +110,21 @@ EOF
 
 From the *previously installed* copy of the app, use **Check for Updates…**. It
 should report the new version and open the release page.
+
+## 7. Clean up the build directory — always
+
+Each build is ~340 MB across the three artifacts plus the unpacked apps, and once
+the release is published GitHub holds the copy that matters (the app downloads
+from there). So the last step of every release is:
+
+```sh
+npm run clean:build          # add --dry-run first if you want to see the list
+```
+
+`scripts/clean-build.mjs` only removes entries in `~/Builds/booking_app_mac/`
+whose names match what electron-builder writes — `Booking-<version>-<arch>.dmg`
+/`.zip`/`.blockmap`, the `mac*` unpacked directories, `builder-debug.yml`,
+`latest-mac.yml`, `.icon-*`. Anything else is listed as *left alone* and never
+touched, and the directory itself is removed only when it ends up empty.
+
+Do not run it before `gh release create` has finished uploading.

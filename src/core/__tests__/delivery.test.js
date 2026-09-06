@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import {
-  deliveryForRow, isAutoSend, summarizeDelivery,
-  dueJobs, pendingJobs, parseLocalDateTime, defaultScheduleValue,
+  deliveryForRow, isAutoSend, summarizeDelivery, selectRows, sourceRepeats,
+  dueJobs, pendingJobs, parseLocalDateTime, defaultScheduleValue, nextOccurrence, repeatLabel,
 } from '../delivery.js'
+import { STATUS } from '../constants.js'
 
 const auto = { Venue: 'A', Auto: 'TRUE' }
 const manual = { Venue: 'B', Auto: '' }
@@ -83,5 +84,68 @@ describe('scheduling', () => {
     const parsed = parseLocalDateTime(value)
     expect(parsed.getTime()).toBeGreaterThan(now2.getTime())
     expect(parsed.getMinutes() % 5).toBe(0)
+  })
+})
+
+describe('selectRows', () => {
+  const rows = [
+    { Venue: 'a', _nextBatch: true },
+    { Venue: 'b', Draft: 'TRUE' },
+    { Venue: 'c', _status: STATUS.FOLLOW_UP_DUE },
+    { Venue: 'd' },
+  ]
+
+  it('picks the batch plus anything flagged Draft', () => {
+    expect(selectRows('nextBatch', { rows }).map(r => r.Venue)).toEqual(['a', 'b'])
+  })
+
+  it('picks follow-ups and Draft flags separately', () => {
+    expect(selectRows('followUp', { rows }).map(r => r.Venue)).toEqual(['c'])
+    expect(selectRows('draftFlag', { rows }).map(r => r.Venue)).toEqual(['b'])
+  })
+
+  it('hands back the current view untouched, and nothing for an unknown source', () => {
+    expect(selectRows('filtered', { rows, filteredRows: [rows[3]] })).toEqual([rows[3]])
+    expect(selectRows('nonsense', { rows })).toEqual([])
+  })
+
+  it('knows which sources a repeating run can reproduce', () => {
+    expect(sourceRepeats('nextBatch')).toBe(true)
+    expect(sourceRepeats('filtered')).toBe(false)
+  })
+})
+
+describe('nextOccurrence', () => {
+  it('keeps the wall-clock time when stepping a day', () => {
+    const at = new Date(2026, 2, 4, 8, 0, 0)   // 04.03.2026, 08:00 local
+    const now = new Date(2026, 2, 4, 8, 30, 0)
+    const next = new Date(nextOccurrence(at.toISOString(), 'daily', now))
+    expect(next.getDate()).toBe(5)
+    expect(next.getHours()).toBe(8)
+    expect(next.getMinutes()).toBe(0)
+  })
+
+  it('keeps the weekday when stepping a week', () => {
+    const at = new Date(2026, 2, 4, 8, 0, 0)
+    const now = new Date(2026, 2, 4, 9, 0, 0)
+    const next = new Date(nextOccurrence(at.toISOString(), 'weekly', now))
+    expect(next.getDay()).toBe(at.getDay())
+    expect(next.getDate()).toBe(11)
+  })
+
+  it('skips straight to the next future slot after a long gap, firing once', () => {
+    const at = new Date(2026, 0, 1, 8, 0, 0)
+    const now = new Date(2026, 3, 1, 12, 0, 0)
+    const next = new Date(nextOccurrence(at.toISOString(), 'daily', now))
+    expect(next.getTime()).toBeGreaterThan(now.getTime())
+    expect(next.getDate()).toBe(2)
+    expect(next.getMonth()).toBe(3)
+  })
+
+  it('has no next time for a one-off or an unparseable date', () => {
+    expect(nextOccurrence(new Date().toISOString(), 'once')).toBeNull()
+    expect(nextOccurrence('whenever', 'daily')).toBeNull()
+    expect(repeatLabel('daily')).toBe('Every day')
+    expect(repeatLabel(undefined)).toBe('Once')
   })
 })

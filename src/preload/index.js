@@ -65,6 +65,9 @@ const api = {
   listScheduledRuns: () => ipcRenderer.invoke('schedule:list'),
   scheduleRun: spec => ipcRenderer.invoke('schedule:add', spec),
   cancelScheduledRun: id => ipcRenderer.invoke('schedule:cancel', id),
+  // The renderer executes repeating runs (it knows the current venues) and
+  // reports the outcome back; `deferred` puts the job back in the queue.
+  reportScheduledRun: (id, payload) => ipcRenderer.invoke('schedule:report', id, payload),
 
   openExternal: url => ipcRenderer.invoke('app:openExternal', url),
 

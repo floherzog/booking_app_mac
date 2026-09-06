@@ -1,26 +1,9 @@
 import { useState, useMemo, useEffect } from 'react'
-import { STATUS } from '@core/constants'
-import { DELIVERY_MODES, deliveryForRow, summarizeDelivery, defaultScheduleValue, parseLocalDateTime, pendingJobs } from '@core/delivery'
+import {
+  DELIVERY_MODES, REPEAT_OPTIONS, SOURCES, selectRows, sourceRepeats, repeatLabel,
+  deliveryForRow, summarizeDelivery, defaultScheduleValue, parseLocalDateTime, pendingJobs,
+} from '@core/delivery'
 import { prepareDraft, deliverPrepared, draftKey } from '../lib/drafts'
-
-// Where a bulk run gets its venues from. Each is a filter over the rows already
-// on screen, so what you see is what you draft.
-const SOURCES = [
-  { id: 'nextBatch', label: 'Next batch', hint: 'The venues the batch rule picked, plus anything flagged Draft.' },
-  { id: 'followUp', label: 'Follow-ups due', hint: 'Every venue whose follow-up date has passed.' },
-  { id: 'draftFlag', label: 'Flagged “Draft”', hint: 'Rows with TRUE in the Draft column.' },
-  { id: 'filtered', label: 'Current view', hint: 'Exactly the rows your filters are showing right now.' },
-]
-
-function selectRows(source, { rows, filteredRows }) {
-  switch (source) {
-    case 'nextBatch': return rows.filter(r => r._nextBatch || r['Draft'] === 'TRUE')
-    case 'followUp': return rows.filter(r => r._status === STATUS.FOLLOW_UP_DUE)
-    case 'draftFlag': return rows.filter(r => r['Draft'] === 'TRUE')
-    case 'filtered': return filteredRows
-    default: return []
-  }
-}
 
 function whenLabel(iso) {
   const d = new Date(iso)
@@ -32,6 +15,7 @@ export default function BulkDraftModal({ rows, filteredRows, templates, language
   const [mode, setMode] = useState('draft')          // 'draft' | 'auto' | 'send'
   const [timing, setTiming] = useState('now')        // 'now' | 'later'
   const [runAt, setRunAt] = useState(() => defaultScheduleValue())
+  const [repeat, setRepeat] = useState('once')
   const [confirmSend, setConfirmSend] = useState(false)
   const [skipped, setSkipped] = useState(() => new Set()) // _idx the user unticked
   const [phase, setPhase] = useState('preflight') // preflight | running | done | scheduled
@@ -70,7 +54,13 @@ export default function BulkDraftModal({ rows, filteredRows, templates, language
   const scheduleInPast = timing === 'later' && scheduledAt && scheduledAt.getTime() < Date.now()
 
   // Sending is irreversible, so it takes a second, explicit click.
-  useEffect(() => { setConfirmSend(false) }, [mode, source, timing, runAt])
+  useEffect(() => { setConfirmSend(false) }, [mode, source, timing, runAt, repeat])
+
+  // "Current view" cannot be worked out again next week, so a repeating run
+  // falls back to the next batch rather than silently reusing a stale list.
+  useEffect(() => {
+    if (repeat !== 'once' && !sourceRepeats(source)) setSource('nextBatch')
+  }, [repeat, source])
 
   function toggle(idx) {
     setSkipped(prev => {
@@ -103,21 +93,28 @@ export default function BulkDraftModal({ rows, filteredRows, templates, language
     setPhase('done')
   }
 
-  // Scheduling renders every message now and hands main the finished bytes, so
-  // a later template edit cannot change what goes out.
+  // A one-off run is scheduled as finished messages, so a later template edit
+  // cannot change what goes out. A repeating run is scheduled as a recipe and
+  // re-picks its venues every time — "every day at 08:00" has to mean today's
+  // batch, not the one that happened to be on screen when it was set up.
   async function schedule() {
     setError('')
     try {
       await window.bookingApi.scheduleRun({
         runAt: scheduledAt.toISOString(),
         mode,
-        items: eligible.map(({ row, prepared, delivery }) => ({
-          key: draftKey(row),
-          venue: row['Venue'] || '',
-          email: row['Email'] || '',
-          delivery,
-          draft: prepared.draft,
-        })),
+        repeat,
+        ...(repeat === 'once'
+          ? {
+            items: eligible.map(({ row, prepared, delivery }) => ({
+              key: draftKey(row),
+              venue: row['Venue'] || '',
+              email: row['Email'] || '',
+              delivery,
+              draft: prepared.draft,
+            })),
+          }
+          : { recipe: { source } }),
       })
       setPhase('scheduled')
     } catch (e) {
@@ -150,7 +147,7 @@ export default function BulkDraftModal({ rows, filteredRows, templates, language
     : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'}`
 
   const primaryLabel = (() => {
-    if (timing === 'later') return `Schedule ${eligible.length}`
+    if (timing === 'later') return repeat === 'once' ? `Schedule ${eligible.length}` : `Schedule ${repeatLabel(repeat).toLowerCase()}`
     if (confirmSend) return `Really send ${counts.send}?`
     if (counts.send && counts.draft) return `Send ${counts.send}, draft ${counts.draft}`
     if (counts.send) return `Send ${counts.send} email${counts.send !== 1 ? 's' : ''}`
@@ -178,11 +175,20 @@ export default function BulkDraftModal({ rows, filteredRows, templates, language
           <div className="px-6 py-3 border-b border-gray-100 dark:border-gray-700 space-y-2.5">
             <div>
               <div className="flex flex-wrap gap-1.5">
-                {SOURCES.map(s => (
-                  <button key={s.id} onClick={() => { setSource(s.id); setSkipped(new Set()) }} title={s.hint} className={pill(source === s.id)}>
-                    {s.label}
-                  </button>
-                ))}
+                {SOURCES.map(s => {
+                  const unusable = repeat !== 'once' && !sourceRepeats(s.id)
+                  return (
+                    <button
+                      key={s.id}
+                      onClick={() => { setSource(s.id); setSkipped(new Set()) }}
+                      disabled={unusable}
+                      title={unusable ? 'A repeating run cannot reuse the filters you have set right now.' : s.hint}
+                      className={`${pill(source === s.id)} disabled:opacity-40`}
+                    >
+                      {s.label}
+                    </button>
+                  )
+                })}
               </div>
               <p className="text-xs text-gray-400 dark:text-gray-500 mt-1.5">{SOURCES.find(s => s.id === source)?.hint}</p>
             </div>
@@ -202,19 +208,30 @@ export default function BulkDraftModal({ rows, filteredRows, templates, language
               <button onClick={() => setTiming('now')} className={pill(timing === 'now')}>Run now</button>
               <button onClick={() => setTiming('later')} className={pill(timing === 'later')}>At a time…</button>
               {timing === 'later' && (
-                <input
-                  type="datetime-local"
-                  value={runAt}
-                  onChange={e => setRunAt(e.target.value)}
-                  className="rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 text-xs py-1"
-                />
+                <>
+                  <input
+                    type="datetime-local"
+                    value={runAt}
+                    onChange={e => setRunAt(e.target.value)}
+                    className="rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 text-xs py-1"
+                  />
+                  <select
+                    value={repeat}
+                    onChange={e => setRepeat(e.target.value)}
+                    className="rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 text-xs py-1"
+                  >
+                    {REPEAT_OPTIONS.map(r => <option key={r.id} value={r.id}>{r.label}</option>)}
+                  </select>
+                </>
               )}
             </div>
             {timing === 'later' && (
               <p className="text-xs text-amber-600 dark:text-amber-400">
-                {scheduleInPast
+                {scheduleInPast && repeat === 'once'
                   ? 'That time has already passed — the run would start immediately.'
-                  : 'Scheduled runs only fire while Booking is open. One that came due while it was closed runs at the next launch.'}
+                  : repeat !== 'once'
+                    ? `${scheduleInPast ? 'That time has passed today, so the first run is the next one. ' : ''}Runs ${repeatLabel(repeat).toLowerCase()} from then on, re-picking “${SOURCES.find(s => s.id === source)?.label}” each time — the ticks below apply to a one-off run only. Cancel it here whenever you like.`
+                    : 'Scheduled runs only fire while Booking is open. One that came due while it was closed runs at the next launch.'}
               </p>
             )}
 
@@ -223,7 +240,10 @@ export default function BulkDraftModal({ rows, filteredRows, templates, language
                 {queue.map(job => (
                   <div key={job.id} className="flex items-center justify-between gap-3 px-3 py-1.5">
                     <p className="text-xs text-gray-600 dark:text-gray-300 truncate">
-                      {job.items.length} message{job.items.length !== 1 ? 's' : ''} · {whenLabel(job.runAt)}
+                      {job.recipe
+                        ? `${SOURCES.find(s => s.id === job.recipe.source)?.label || job.recipe.source}, ${repeatLabel(job.repeat).toLowerCase()}`
+                        : `${job.items.length} message${job.items.length !== 1 ? 's' : ''}`}
+                      {' · '}{whenLabel(job.runAt)}
                       <span className="text-gray-400 dark:text-gray-500"> · {job.mode}</span>
                     </p>
                     <button onClick={() => cancelJob(job.id)} className="text-xs text-gray-500 dark:text-gray-400 hover:text-red-600 dark:hover:text-red-400 shrink-0">
@@ -239,7 +259,8 @@ export default function BulkDraftModal({ rows, filteredRows, templates, language
         <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4 space-y-1.5">
           {phase === 'scheduled' ? (
             <p className="text-sm text-gray-600 dark:text-gray-300 py-8 text-center">
-              Scheduled for {whenLabel(scheduledAt?.toISOString() || runAt)}.<br />
+              Scheduled for {whenLabel(scheduledAt?.toISOString() || runAt)}
+              {repeat !== 'once' && `, then ${repeatLabel(repeat).toLowerCase()}`}.<br />
               <span className="text-xs text-gray-400 dark:text-gray-500">
                 Leave Booking running, or open it again before then.
               </span>
@@ -339,7 +360,7 @@ export default function BulkDraftModal({ rows, filteredRows, templates, language
               {phase !== 'done' && phase !== 'scheduled' && (
                 <button
                   onClick={primaryAction}
-                  disabled={phase === 'running' || eligible.length === 0 || (timing === 'later' && !scheduledAt)}
+                  disabled={phase === 'running' || (repeat === 'once' && eligible.length === 0) || (timing === 'later' && !scheduledAt)}
                   className={`text-white text-sm font-medium px-5 py-2 rounded-md transition-colors disabled:opacity-50 ${confirmSend
                     ? 'bg-rose-600 hover:bg-rose-700'
                     : 'bg-indigo-600 hover:bg-indigo-700'}`}
