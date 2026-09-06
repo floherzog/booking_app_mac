@@ -26,8 +26,8 @@ for an Intel Mac, and drag Booking into Applications.
 > and the app opens normally from then on.
 
 > **The first launch can be slow — minutes, not seconds.** Before macOS runs an
-> app it has never seen, it scans the whole bundle, and Booking is a ~300 MB
-> Electron app. On a slower Mac that scan has taken **ten minutes of bouncing in
+> app it has never seen, it scans the whole bundle, and Booking is a large
+> Electron app (269 MB installed). On a slower Mac that scan has taken **ten minutes of bouncing in
 > the Dock** before the window appeared; it only happens once, and every launch
 > afterwards is instant. `xattr -cr /Applications/Booking.app` before the first
 > launch skips it. Also make sure you took the right build: running the **x64**
