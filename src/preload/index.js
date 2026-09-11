@@ -49,6 +49,10 @@ const api = {
   // Apple Mail drafts
   testMailConnection: () => ipcRenderer.invoke('mail:testConnection'),
   appendDraft: args => ipcRenderer.invoke('mail:appendDraft', args),
+  articleAvailability: () => ipcRenderer.invoke('articles:availability'),
+  resolveGenders: names => ipcRenderer.invoke('articles:resolve', names),
+  setGenderOverride: (name, gender) => ipcRenderer.invoke('articles:override', name, gender),
+  syncMail: rows => ipcRenderer.invoke('mail:sync', rows),
   sendMail: args => ipcRenderer.invoke('mail:send', args),
   appleScriptDraft: args => ipcRenderer.invoke('mail:appleScriptDraft', args),
   appleScriptCheck: () => ipcRenderer.invoke('mail:appleScriptCheck'),

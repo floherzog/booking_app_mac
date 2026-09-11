@@ -5,7 +5,9 @@ import {
   flexRender,
   createColumnHelper,
 } from '@tanstack/react-table'
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useWindowVirtualizer } from '@tanstack/react-virtual'
+import { useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
+import { useIsDesktop } from '../lib/useMediaQuery'
 import StatusBadge from './StatusBadge'
 import EditableCell from './EditableCell'
 import SelectCell from './SelectCell'
@@ -577,72 +579,123 @@ export default function BookingTable({ rows, edits, onEdit, onVenueClick, sortBy
 
   const sortedRows = table.getRowModel().rows
 
-  return (
-    <>
-      {/* Mobile card list */}
-      <div className="block sm:hidden rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 overflow-hidden">
-        {sortedRows.length === 0 ? (
-          <p className="px-3 py-8 text-center text-gray-400 dark:text-gray-500 text-sm">No venues match the current filters.</p>
-        ) : (
-          sortedRows.map(row => (
-            <MobileCard key={row.id} row={row} edits={edits} onVenueClick={onVenueClick} onEdit={onEdit} />
-          ))
-        )}
-      </div>
+  // Only one of the two layouts is ever visible, so only one is mounted. Both are
+  // windowed against the page scroller (the app has no inner scroll container, and
+  // giving it one would change how the whole view scrolls).
+  const isDesktop = useIsDesktop()
+  const listRef = useRef(null)
+  // Rows start partway down the document; without this offset the window scroll
+  // position and the virtual offsets disagree by exactly that much. It has to be
+  // state, not a ref: on the first render the node does not exist yet, and
+  // nothing else would re-render to pick up the real value.
+  const [scrollMargin, setScrollMargin] = useState(0)
+  useLayoutEffect(() => {
+    const update = () => setScrollMargin(listRef.current?.offsetTop ?? 0)
+    update()
+    window.addEventListener('resize', update)
+    return () => window.removeEventListener('resize', update)
+  }, [isDesktop])
 
-      {/* Desktop table */}
-      <div className="hidden sm:block overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
-        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700 text-sm">
-          <thead className="bg-gray-50 dark:bg-gray-800">
-            {table.getHeaderGroups().map(hg => (
-              <tr key={hg.id}>
-                {hg.headers.map(h => (
-                  <th
-                    key={h.id}
-                    className={`px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide select-none
-                      ${h.column.getCanSort() ? 'cursor-pointer hover:text-gray-800 dark:hover:text-gray-200' : ''}`}
-                    onClick={h.column.getToggleSortingHandler()}
-                  >
-                    {flexRender(h.column.columnDef.header, h.getContext())}
-                    {h.column.getIsSorted() === 'asc' && ' ↑'}
-                    {h.column.getIsSorted() === 'desc' && ' ↓'}
-                  </th>
-                ))}
-              </tr>
-            ))}
-          </thead>
-          <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-100 dark:divide-gray-800">
-            {sortedRows.map(row => {
-              const meta = STATUS_META[row.original._status] || {}
-              const hasRowEdits = !!edits[row.original._idx]
-              const highlight = hasRowEdits ? '' : rowHighlight(row.original)
+  const virtualizer = useWindowVirtualizer({
+    count: sortedRows.length,
+    estimateSize: () => (isDesktop ? 41 : 118),
+    overscan: 10,
+    scrollMargin,
+  })
+
+  const virtualRows = virtualizer.getVirtualItems()
+  const padTop = virtualRows.length ? virtualRows[0].start - virtualizer.options.scrollMargin : 0
+  const padBottom = virtualRows.length
+    ? virtualizer.getTotalSize() - (virtualRows[virtualRows.length - 1].end - virtualizer.options.scrollMargin)
+    : 0
+
+  const empty = (
+    <p className="px-3 py-8 text-center text-gray-400 dark:text-gray-500 text-sm">
+      No venues match the current filters.
+    </p>
+  )
+
+  if (!isDesktop) {
+    return (
+      <div ref={listRef} className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 overflow-hidden">
+        {sortedRows.length === 0 ? empty : (
+          <>
+            <div style={{ height: padTop }} />
+            {virtualRows.map(v => {
+              const row = sortedRows[v.index]
               return (
-                <tr
-                  key={row.id}
-                  className={`cursor-pointer ${meta.row || ''} ${highlight} hover:bg-gray-50 dark:hover:bg-gray-800/60 transition-colors ${hasRowEdits ? 'bg-amber-50/40 dark:bg-amber-900/10' : ''}`}
-                  onClick={e => {
-                    if (e.target.closest('input, textarea, button, a, select')) return
-                    table.options.meta.onVenueClick(row.original._idx)
-                  }}
-                >
-                  {row.getVisibleCells().map(cell => (
-                    <td key={cell.id} className="px-3 py-2 align-top">
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                    </td>
-                  ))}
-                </tr>
+                <div key={row.id} data-index={v.index} ref={virtualizer.measureElement}>
+                  <MobileCard row={row} edits={edits} onVenueClick={onVenueClick} onEdit={onEdit} />
+                </div>
               )
             })}
-            {rows.length === 0 && (
-              <tr>
-                <td colSpan={columns.length} className="px-3 py-8 text-center text-gray-400 dark:text-gray-500 text-sm">
-                  No venues match the current filters.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+            <div style={{ height: padBottom }} />
+          </>
+        )}
       </div>
-    </>
+    )
+  }
+
+  return (
+    <div ref={listRef} className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
+      <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700 text-sm">
+        <thead className="bg-gray-50 dark:bg-gray-800">
+          {table.getHeaderGroups().map(hg => (
+            <tr key={hg.id}>
+              {hg.headers.map(h => (
+                <th
+                  key={h.id}
+                  className={`px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide select-none
+                    ${h.column.getCanSort() ? 'cursor-pointer hover:text-gray-800 dark:hover:text-gray-200' : ''}`}
+                  onClick={h.column.getToggleSortingHandler()}
+                >
+                  {flexRender(h.column.columnDef.header, h.getContext())}
+                  {h.column.getIsSorted() === 'asc' && ' ↑'}
+                  {h.column.getIsSorted() === 'desc' && ' ↓'}
+                </th>
+              ))}
+            </tr>
+          ))}
+        </thead>
+        <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-100 dark:divide-gray-800">
+          {sortedRows.length === 0 ? (
+            <tr>
+              <td colSpan={columns.length} className="px-3 py-8 text-center text-gray-400 dark:text-gray-500 text-sm">
+                No venues match the current filters.
+              </td>
+            </tr>
+          ) : (
+            <>
+              {padTop > 0 && <tr style={{ height: padTop }} />}
+              {virtualRows.map(v => {
+                const row = sortedRows[v.index]
+                const meta = STATUS_META[row.original._status] || {}
+                const hasRowEdits = !!edits[row.original._idx]
+                const highlight = hasRowEdits ? '' : rowHighlight(row.original)
+                return (
+                  <tr
+                    key={row.id}
+                    data-index={v.index}
+                    ref={virtualizer.measureElement}
+                    className={`cursor-pointer ${meta.row || ''} ${highlight} hover:bg-gray-50 dark:hover:bg-gray-800/60 transition-colors ${hasRowEdits ? 'bg-amber-50/40 dark:bg-amber-900/10' : ''}`}
+                    onClick={e => {
+                      if (e.target.closest('input, textarea, button, a, select')) return
+                      table.options.meta.onVenueClick(row.original._idx)
+                    }}
+                  >
+                    {row.getVisibleCells().map(cell => (
+                      <td key={cell.id} className="px-3 py-2 align-top">
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </td>
+                    ))}
+                  </tr>
+                )
+              })}
+              {padBottom > 0 && <tr style={{ height: padBottom }} />}
+            </>
+          )}
+        </tbody>
+      </table>
+    </div>
   )
 }

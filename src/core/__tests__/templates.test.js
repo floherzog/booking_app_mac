@@ -92,7 +92,7 @@ describe('substitutePlaceholders', () => {
   })
 
   it('covers exactly the documented placeholder list', () => {
-    expect(PLACEHOLDERS).toEqual(['venue', 'contact', 'city', 'country', 'dates', 'text', 'band'])
+    expect(PLACEHOLDERS).toEqual(['venue', 'contact', 'city', 'country', 'dates', 'text', 'band', 'article'])
     for (const p of PLACEHOLDERS) {
       expect(substitutePlaceholders(`{{${p}}}`, row).text).not.toContain('{{')
     }
@@ -265,5 +265,30 @@ describe('substituteTemplate with contact options', () => {
     expect(out.subject).toBe('Hallo Club X Team')
     expect(out.bodyJSON.content[0].content[0].text).toBe('Hi Club X Team,')
     expect(out.empties).not.toContain('contact')
+  })
+})
+
+describe('substitutePlaceholders — {{article}}', () => {
+  const row = { Venue: 'Kulturfabrik', Contact: 'Anna' }
+
+  it('declines and contracts using the venue gender', () => {
+    const { text } = substitutePlaceholders('Wir spielen in {{article}} {{venue}}', row, { gender: 'f' })
+    expect(text).toBe('Wir spielen in der Kulturfabrik')
+  })
+
+  it('contracts for a neuter venue', () => {
+    const { text } = substitutePlaceholders('Wir spielen in {{article}} {{venue}}', { Venue: 'Kulturzentrum' }, { gender: 'n' })
+    expect(text).toBe('Wir spielen im Kulturzentrum')
+  })
+
+  it('drops the token and reports it when no gender is known', () => {
+    const { text, empties } = substitutePlaceholders('Wir spielen in {{article}} {{venue}}', row)
+    expect(text).toBe('Wir spielen in Kulturfabrik')
+    expect(empties).toContain('article')
+  })
+
+  it('does not report it when the template never used it', () => {
+    const { empties } = substitutePlaceholders('Hallo {{contact}}', row)
+    expect(empties).not.toContain('article')
   })
 })

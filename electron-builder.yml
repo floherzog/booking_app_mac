@@ -30,6 +30,13 @@ files:
 extraResources:
   - from: resources/geo_cache.json
     to: geo_cache.json
+  # The Swift binary that reaches Apple's on-device model for German noun gender.
+  # Built by scripts/build-helper.mjs; absent if swiftc was unavailable, in which
+  # case src/main/ipc/articles.js reports the feature as unavailable.
+  - from: resources/helpers/bin
+    to: helpers
+    filter:
+      - article-helper
 
 mac:
   category: public.app-category.productivity

@@ -1,8 +1,10 @@
 import { useState } from 'react'
+import { parseCsvRaw } from '@core/csv'
+import { looksLikeAppCsv } from '@core/importMap'
 
 // Shown until a storage adapter is configured: pick an existing CSV, create a
 // fresh one with just the canonical header row, or point at a GitHub repo.
-export default function FirstRun({ settings, onConfigured }) {
+export default function FirstRun({ settings, onConfigured, onNeedsMapping }) {
   const [mode, setMode] = useState('file')
   const [repo, setRepo] = useState(settings?.storage?.github?.repo || '')
   const [path, setPath] = useState(settings?.storage?.github?.path || '')
@@ -26,6 +28,16 @@ export default function FirstRun({ settings, onConfigured }) {
     return run(async () => {
       const picked = await window.bookingApi.pickCsvOpen()
       if (!picked) return
+      // A file the app, the webapp or the scripts wrote already uses the canonical
+      // column names and can be adopted as-is. Anyone else's spreadsheet cannot:
+      // pointing the adapter straight at it used to "work" and then show a table
+      // of empty columns, so hand it to the import wizard's mapping step instead.
+      const { text } = await window.bookingApi.readCsvFile(picked)
+      const { headers } = await parseCsvRaw(text)
+      if (!looksLikeAppCsv(headers) && onNeedsMapping) {
+        onNeedsMapping({ text, name: picked.split('/').pop(), path: picked })
+        return
+      }
       await onConfigured({ adapter: 'file', filePath: picked })
     })
   }

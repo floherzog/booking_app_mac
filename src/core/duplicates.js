@@ -21,52 +21,77 @@ function clean(s) {
 
 function tokenSet(s) { return new Set(clean(s).split(' ').filter(Boolean)) }
 
+// Everything comparing two venue names needs the same three derived forms. They
+// are pure functions of the name, so at N venues per city this is computed N
+// times instead of N² — the inner loop below used to re-derive them per pair,
+// which is what made a 3000-venue list cost ~400 ms per recompute.
+function prepare(name) {
+  const cleaned = clean(name)
+  return {
+    cleaned,
+    squashed: cleaned.replace(/\s/g, ''),
+    tokens: new Set(cleaned.split(' ').filter(Boolean)),
+  }
+}
+
 // Two venue names count as similar if one is a substring of the other (spaced or
 // not), OR all words of the shorter name appear in the longer one (catches inserted
 // words like "Jazz Gütersloh" vs "Jazz in Gütersloh"), OR they overlap heavily.
-function isSimilar(nA, nB) {
-  const cA = clean(nA)
-  const cB = clean(nB)
+function isSimilarPrepared(A, B) {
+  const { cleaned: cA, squashed: sA, tokens: a } = A
+  const { cleaned: cB, squashed: sB, tokens: b } = B
   if (!cA || !cB) return false
-  const sA = cA.replace(/\s/g, '')
-  const sB = cB.replace(/\s/g, '')
   if (cA.includes(cB) || cB.includes(cA) || sA.includes(sB) || sB.includes(sA)) return true
 
-  const a = tokenSet(cA)
-  const b = tokenSet(cB)
   const [small, big] = a.size <= b.size ? [a, b] : [b, a]
-  const shared = [...small].filter(t => big.has(t)).length
+  let shared = 0
+  for (const t of small) if (big.has(t)) shared++
   if (shared === small.size) return true // every word of the shorter name is present in the longer
 
-  const union = new Set([...a, ...b]).size
+  const union = a.size + b.size - shared
   return union > 0 && shared / union >= 0.6 // mostly the same words (handles reordering/typos)
 }
 
+// Kept for callers that compare two raw names directly.
+export function isSimilar(nA, nB) {
+  return isSimilarPrepared(prepare(nA), prepare(nB))
+}
+
 export function computeDuplicates(rows, dismissed = new Set()) {
-  const byCity = {}
+  const byCity = new Map()
   rows.forEach(r => {
     const city = normalize(r['City'])
     if (!city) return
-    ;(byCity[city] = byCity[city] || []).push(r)
+    const venue = normalize(r['Venue'])
+    if (!venue) return // a nameless row can never match, so never bucket it
+    // NB: the dismissal key must match pairKey() byte for byte, and pairKey uses
+    // the *raw* lowercased fields — not the whitespace-collapsed ones used for
+    // bucketing — so a venue with a double space still matches its stored key.
+    const key = `${(r['City'] || '').toLowerCase()}:::${(r['Venue'] || '').toLowerCase()}`
+    const entry = { row: r, prepared: prepare(venue), key }
+    const group = byCity.get(city)
+    if (group) group.push(entry)
+    else byCity.set(city, [entry])
   })
 
   const dups = new Set()
   const partners = {}
 
-  Object.values(byCity).forEach(group => {
+  for (const group of byCity.values()) {
     for (let i = 0; i < group.length; i++) {
+      const A = group[i]
       for (let j = i + 1; j < group.length; j++) {
-        const nA = normalize(group[i]['Venue'])
-        const nB = normalize(group[j]['Venue'])
-        if (!nA || !nB) continue
-        if (isSimilar(nA, nB) && !dismissed.has(pairKey(group[i], group[j]))) {
-          dups.add(group[i]._idx)
-          dups.add(group[j]._idx)
-          ;(partners[group[i]._idx] = partners[group[i]._idx] || []).push(group[j])
-          ;(partners[group[j]._idx] = partners[group[j]._idx] || []).push(group[i])
-        }
+        const B = group[j]
+        if (!isSimilarPrepared(A.prepared, B.prepared)) continue
+        // Only build the (comparatively expensive) pair key once a pair matches.
+        const pair = A.key <= B.key ? `${A.key}|||${B.key}` : `${B.key}|||${A.key}`
+        if (dismissed.has(pair)) continue
+        dups.add(A.row._idx)
+        dups.add(B.row._idx)
+        ;(partners[A.row._idx] = partners[A.row._idx] || []).push(B.row)
+        ;(partners[B.row._idx] = partners[B.row._idx] || []).push(A.row)
       }
     }
-  })
+  }
   return { dups, partners }
 }

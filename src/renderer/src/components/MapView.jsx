@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { MapContainer, TileLayer, Marker, Popup, CircleMarker, useMap, useMapEvents } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
@@ -171,25 +171,53 @@ export default function MapView({ filteredRows, onVenueClick, focusRow }) {
       .catch(() => {})
   }, [])
 
-  useEffect(() => {
-    const unique = [...new Set(
-      filteredRows
-        .filter(r => r['City'] || r['Country'])
-        .map(r => `${r['City'] || ''}||${r['Country'] || ''}`)
-    )]
-    let cancelled = false
+  // Cities the cache cannot place yet.
+  //
+  // This used to run on its own, on every mount, for every unknown city. Nominatim
+  // asks for at most one request per second and the main process honours that
+  // strictly (geocache.js), so a list with a few hundred unplaced cities meant
+  // twenty minutes of invisible work with no progress and no way to stop. Now the
+  // map paints everything it already knows immediately and the rest is an explicit,
+  // interruptible job. Every result is persisted as it arrives, so stopping and
+  // resuming later picks up where it left off.
+  const pendingKeys = useMemo(() => {
+    const keys = new Set()
+    for (const r of filteredRows) {
+      if (!r['City'] && !r['Country']) continue
+      const key = `${r['City'] || ''}||${r['Country'] || ''}`
+      if (!(key in geoCache)) keys.add(key)
+    }
+    return [...keys]
+  }, [filteredRows, geoCache])
 
-    Promise.all(unique.map(async key => {
-      const [city, country] = key.split('||')
-      const result = await geocodeCity(city, country)
-      if (!cancelled) setGeoCache(prev => prev[key] === result ? prev : { ...prev, [key]: result })
-    }))
+  const [progress, setProgress] = useState(null) // { done, total } while running
+  const cancelRef = useRef(false)
 
-    return () => { cancelled = true }
-    // geoCache is intentionally omitted: this effect writes to it, so depending on
-    // it would re-trigger geocoding in a loop. Only re-run when the rows change.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filteredRows])
+  // Never keep geocoding after the map is unmounted.
+  useEffect(() => () => { cancelRef.current = true }, [])
+
+  const locate = useCallback(async () => {
+    const keys = pendingKeys
+    if (!keys.length) return
+    cancelRef.current = false
+    setProgress({ done: 0, total: keys.length })
+    for (let i = 0; i < keys.length; i++) {
+      if (cancelRef.current) break
+      const [city, country] = keys[i].split('||')
+      const result = await geocodeCity(city, country) // main throttles to 1/sec
+      if (cancelRef.current) break
+      const key = keys[i]
+      setGeoCache(prev => ({ ...prev, [key]: result }))
+      setProgress({ done: i + 1, total: keys.length })
+    }
+    setProgress(null)
+    setGeoCache(prev => {
+      try { localStorage.setItem('booking_geo_cache', JSON.stringify(prev)) } catch { /* quota */ }
+      return prev
+    })
+  }, [pendingKeys])
+
+  const stopLocating = useCallback(() => { cancelRef.current = true }, [])
 
   const locationMap = {}
   const unplacedVenues = []
@@ -227,6 +255,33 @@ export default function MapView({ filteredRows, onVenueClick, focusRow }) {
           ) : null
         })()}
       </MapContainer>
+
+      {(pendingKeys.length > 0 || progress) && (
+        <div className="absolute top-3 right-3 z-[1000] flex items-center gap-1.5">
+          {progress ? (
+            <>
+              <span className="bg-white/90 rounded px-2.5 py-1 text-xs text-gray-600 shadow-sm border border-gray-200">
+                Locating cities… {progress.done}/{progress.total}
+              </span>
+              <button
+                onClick={stopLocating}
+                className="bg-white/90 rounded px-2.5 py-1 text-xs text-gray-500 shadow-sm border border-gray-200 hover:text-gray-800 hover:border-gray-300 transition-colors"
+              >
+                Stop
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={locate}
+              title="Looks up coordinates via OpenStreetMap, one city per second — results are saved, so this only ever runs once per city."
+              className="bg-white/90 rounded px-2.5 py-1 text-xs text-gray-500 shadow-sm border border-gray-200 hover:text-gray-800 hover:border-gray-300 transition-colors"
+            >
+              {pendingKeys.length} cit{pendingKeys.length !== 1 ? 'ies' : 'y'} not located — locate{' '}
+              ({pendingKeys.length < 60 ? `~${Math.max(1, Math.round(pendingKeys.length * 1.05))} sec` : `~${Math.ceil(pendingKeys.length * 1.05 / 60)} min`})
+            </button>
+          )}
+        </div>
+      )}
 
       {unplacedVenues.length > 0 && (
         <div className="absolute bottom-3 left-3 z-[1000]">

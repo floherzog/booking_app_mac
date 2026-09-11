@@ -34,6 +34,13 @@ git commit -am "Release 0.2.0"
 npm test && npm run build && npm run dist
 ```
 
+`npm run build` also compiles `resources/helpers/article-helper` with `swiftc`
+(the on-device model that resolves German noun gender). If the Xcode Command Line
+Tools are missing it prints a warning and carries on — but then the release ships
+**without** the helper and the German-article feature reports itself unavailable
+on every Mac. Check the build log says `article-helper built (universal)` before
+publishing.
+
 The artifacts are temporary: step 7 deletes them once the release is up.
 
 Artifacts land **outside the repo**, in `~/Builds/booking_app_mac/` — this repo
@@ -97,11 +104,27 @@ gh release create v0.2.0 \
   --notes "$(cat <<'EOF'
 What changed…
 
-**Installing:** download the arm64 .dmg (Apple Silicon) or the x64 .dmg (Intel),
-drag Booking into Applications, replacing the old copy. The first launch needs a
-one approval: double-click, let it be blocked by "Apple could not verify…", then
-go to *System Settings → Privacy & Security* and press **Open Anyway**. The app is
-ad-hoc signed but not notarised. (Right-click → Open stopped working in macOS 15.)
+**Installing.** Download the arm64 .dmg (Apple Silicon) or the x64 .dmg (Intel).
+Before installing, run this on the downloaded file:
+
+    xattr -dr com.apple.quarantine ~/Downloads/Booking-<version>-arm64.dmg
+
+Then open the DMG and drag Booking into Applications, replacing the old copy.
+
+That command matters. Booking is ad-hoc signed but not notarised, so the first
+launch of a quarantined copy makes macOS ask Apple about a notarisation ticket
+that does not exist — and when that lookup cannot complete quickly, macOS waits
+rather than failing fast. That has meant **twenty minutes of bouncing in the Dock**
+on one machine. Stripping the flag skips the check. It applies to every update,
+because each build is a new app to macOS.
+
+Strip it from the **.dmg, before installing** — running `xattr` on an app already
+in /Applications fails on macOS 14+ ("Privacy & Security has prevented Terminal
+from modifying Booking.app"), and `sudo` does not help.
+
+Without Terminal: install normally, double-click, let it be blocked by "Apple
+could not verify…", then *System Settings → Privacy & Security* → **Open Anyway**,
+and expect the wait. (Right-click → Open stopped working in macOS 15.)
 EOF
 )"
 ```

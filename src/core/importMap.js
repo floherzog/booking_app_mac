@@ -64,3 +64,17 @@ export function applyMapping(sourceRows = [], mapping = {}) {
 export function mappedCount(mapping = {}) {
   return Object.values(mapping).filter(Boolean).length
 }
+
+// Does this file already use the app's own column names?
+//
+// Picking a CSV on the first run configures the storage adapter directly, with no
+// mapping step — which is right for a file the app (or the webapp, or the scripts)
+// wrote, and silently wrong for someone's own spreadsheet, where every column
+// lands blank. These six are the ones the app cannot work without; a file missing
+// any of them needs the import wizard's mapping step instead.
+const SIGNATURE_COLUMNS = ['Venue', 'Band', 'City', 'Country', 'Email', 'Last emailed']
+
+export function looksLikeAppCsv(headers = []) {
+  const present = new Set((headers || []).map(h => String(h || '').trim()))
+  return SIGNATURE_COLUMNS.every(c => present.has(c))
+}

@@ -3,6 +3,7 @@ import { app, shell, dialog, BrowserWindow, Menu, protocol, net } from 'electron
 import { pathToFileURL } from 'node:url'
 import { registerIpc } from './ipc/index.js'
 import { checkForUpdates } from './ipc/updates.js'
+import { readSettings } from './settingsStore.js'
 import { startScheduler } from './scheduler.js'
 
 const isDev = !app.isPackaged
@@ -41,9 +42,9 @@ function sendToRenderer(channel) {
 
 // "Check for Updates…" — nothing installs itself; we compare against the latest
 // GitHub release and hand the user the download page.
-async function promptForUpdate() {
+async function promptForUpdate({ preloaded = null } = {}) {
   const parent = currentWindow()
-  const result = await checkForUpdates({ currentVersion: app.getVersion() })
+  const result = preloaded || await checkForUpdates({ currentVersion: app.getVersion() })
 
   if (result.error) {
     await dialog.showMessageBox(parent, {
@@ -77,6 +78,18 @@ async function promptForUpdate() {
     cancelId: 1,
   })
   if (response === 0) shell.openExternal(result.url)
+}
+
+// Settings ▸ General can have the app look for a release on its own. It stays
+// quiet unless there is actually something newer: no dialog when up to date, and
+// none when offline (checkForUpdates returns an error string rather than throwing).
+async function autoCheckForUpdates() {
+  try {
+    if (!readSettings()?.general?.autoCheckUpdates) return
+    const result = await checkForUpdates({ currentVersion: app.getVersion() })
+    if (!result || result.error || !result.newer) return
+    await promptForUpdate({ preloaded: result })
+  } catch { /* an update check must never get in the way of starting up */ }
 }
 
 function buildMenu() {
@@ -154,7 +167,10 @@ function createWindow() {
     },
   })
 
-  win.on('ready-to-show', () => win.show())
+  win.on('ready-to-show', () => {
+    win.show()
+    autoCheckForUpdates()
+  })
 
   // In dev, surface renderer console output on the terminal so a headless run
   // (or a run behind the window) still shows errors.

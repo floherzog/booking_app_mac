@@ -38,6 +38,17 @@ export const DEFAULT_SETTINGS = {
     fromName: '',
     draftsMailbox: '',
     sentMailbox: '',
+    // Keeping the CSV's date columns in step with the mail account. Nothing here
+    // ever writes a row directly — a sync stages edits you confirm with Save.
+    sync: {
+      lastEmailed: 'onSend',   // 'off' | 'onSend' (stamp today when drafting/sending) | 'imap'
+      replies: 'off',          // 'off' | 'imap'
+      months: 24,              // how far back a scan looks
+      onOpen: true,            // run the configured scans once after load
+    },
+  },
+  general: {
+    autoCheckUpdates: true,
   },
   dismissedDupes: [],
   draftLog: {},                // 'Venue||City||Band' → ISO timestamp
@@ -86,7 +97,12 @@ function withDefaults(stored) {
       default: s.languages?.default || DEFAULT_SETTINGS.languages.default,
       map: isPlainObject(s.languages?.map) ? s.languages.map : { ...DEFAULT_SETTINGS.languages.map },
     },
-    mail: { ...DEFAULT_SETTINGS.mail, ...(s.mail || {}) },
+    mail: {
+      ...DEFAULT_SETTINGS.mail,
+      ...(s.mail || {}),
+      sync: { ...DEFAULT_SETTINGS.mail.sync, ...(isPlainObject(s.mail?.sync) ? s.mail.sync : {}) },
+    },
+    general: { ...DEFAULT_SETTINGS.general, ...(isPlainObject(s.general) ? s.general : {}) },
     dismissedDupes: Array.isArray(s.dismissedDupes) ? s.dismissedDupes : [],
     draftLog: isPlainObject(s.draftLog) ? s.draftLog : {},
   }

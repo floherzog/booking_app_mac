@@ -1,7 +1,7 @@
 {
   "name": "booking_app_mac",
   "productName": "Booking",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Booking outreach manager for macOS",
   "private": true,
   "type": "module",
@@ -9,15 +9,17 @@
   "author": "floherzog",
   "scripts": {
     "dev": "electron-vite dev",
-    "build": "electron-vite build",
+    "build": "node scripts/build-helper.mjs && electron-vite build",
     "start": "electron-vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
     "check:drift": "node scripts/check-core-drift.mjs",
+    "bench:core": "node scripts/bench-core.mjs",
     "dist": "npm run build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac -c.directories.output=\"$HOME/Builds/booking_app_mac\"",
     "clean:build": "node scripts/clean-build.mjs",
     "verify:csv": "node scripts/verify-csv-roundtrip.mjs",
-    "dist:signed": "npm run build && electron-builder --mac -c.directories.output=\"$HOME/Builds/booking_app_mac\""
+    "dist:signed": "npm run build && electron-builder --mac -c.directories.output=\"$HOME/Builds/booking_app_mac\"",
+    "build:helper": "node scripts/build-helper.mjs"
   },
   "dependencies": {
     "date-fns": "^4.3.0",
@@ -28,6 +30,7 @@
   "devDependencies": {
     "@tailwindcss/forms": "^0.5.11",
     "@tanstack/react-table": "^8.21.3",
+    "@tanstack/react-virtual": "^3.14.11",
     "@tiptap/extension-image": "^3.31.0",
     "@tiptap/extension-link": "^3.31.0",
     "@tiptap/extension-underline": "^3.31.0",

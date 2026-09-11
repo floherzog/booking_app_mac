@@ -7,6 +7,8 @@ import { registerGeocacheIpc } from './geocache.js'
 import { registerTemplatesIpc } from './templates.js'
 import { registerMailImapIpc } from './mailImap.js'
 import { registerMailSmtpIpc } from './mailSmtp.js'
+import { registerMailSyncIpc } from './mailSync.js'
+import { registerArticlesIpc } from './articles.js'
 import { registerMailAppleScriptIpc } from './mailAppleScript.js'
 import { registerUpdatesIpc } from './updates.js'
 import { registerScheduleIpc } from '../scheduler.js'
@@ -28,6 +30,8 @@ export function registerIpc() {
   registerTemplatesIpc()
   registerMailImapIpc()
   registerMailSmtpIpc()
+  registerMailSyncIpc()
+  registerArticlesIpc()
   registerMailAppleScriptIpc()
   registerUpdatesIpc()
   registerScheduleIpc()

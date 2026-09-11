@@ -12,27 +12,44 @@ the private repositories, tokens and servers the original depended on.
 **[Download the latest release →](https://github.com/floherzog/booking_app_mac/releases/latest)**
 
 Take `Booking-<version>-arm64.dmg` for Apple Silicon or `Booking-<version>-x64.dmg`
-for an Intel Mac, and drag Booking into Applications.
+for an Intel Mac. **Before you install it, run this on the downloaded file:**
 
-> **The first launch has to be approved once.** The app is ad-hoc signed but not
-> notarised, so macOS blocks it with *"Apple could not verify Booking is free of
-> malware"*. Double-click it, let it be blocked, then go to **System Settings →
-> Privacy & Security**, scroll to the bottom, and press **Open Anyway**.
+```sh
+xattr -dr com.apple.quarantine ~/Downloads/Booking-<version>-arm64.dmg
+```
+
+Then open the DMG and drag Booking into Applications. That one command is worth
+the detour: it is what makes the app open *immediately* and without a warning.
+
+> **Why.** Every download is flagged with `com.apple.quarantine`. The first time
+> you open a quarantined app, macOS asks Apple whether that exact build has been
+> notarised. Booking is ad-hoc signed but **not** notarised, so there is no answer
+> to find — and when that lookup cannot complete quickly (a DNS filter, a VPN, a
+> school or office network), macOS does not give up fast. It waits. On one Mac
+> this took **twenty minutes of bouncing in the Dock**, with no window and a
+> beachball, before the app finally opened. Stripping the flag skips the check
+> entirely. It happens again on **every update**, because each new build is a new
+> app as far as macOS is concerned.
 >
-> Right-click → Open used to do this in one step, but **Apple removed that
-> bypass in macOS 15**; on Sequoia and later, Privacy & Security is the only way
-> through. If you would rather not deal with it at all,
-> `xattr -cr /Applications/Booking.app` in Terminal removes the quarantine flag
-> and the app opens normally from then on.
+> Strip it from the **`.dmg`, before installing** — not from the installed app.
+> `xattr` on `/Applications/Booking.app` fails on macOS 14 and later with
+> *"Privacy & Security has prevented Terminal from modifying Booking.app"*: an app
+> may not modify another installed app, and `sudo` does not help. Quarantine
+> propagates from a disk image to whatever you drag out of it, so cleaning the DMG
+> is enough.
 
-> **The first launch can be slow — minutes, not seconds.** Before macOS runs an
-> app it has never seen, it scans the whole bundle, and Booking is a large
-> Electron app (269 MB installed). On a slower Mac that scan has taken **ten minutes of bouncing in
-> the Dock** before the window appeared; it only happens once, and every launch
-> afterwards is instant. `xattr -cr /Applications/Booking.app` before the first
-> launch skips it. Also make sure you took the right build: running the **x64**
-> DMG on an Apple Silicon Mac makes macOS translate the whole app through Rosetta
-> on first launch, which is slow for the same reason and stays slower afterwards.
+> **If you would rather not use Terminal**, install normally and approve it by
+> hand: double-click Booking, let it be blocked with *"Apple could not verify…"*,
+> then open **System Settings → Privacy & Security**, scroll to the bottom and
+> press **Open Anyway**. Expect the wait described above the first time.
+> (Right-click → Open used to do this in one step, but Apple removed that bypass
+> in macOS 15.)
+
+> **Already installed and stuck?** Let it finish opening once — macOS caches the
+> verdict, so that build launches instantly from then on. To clean it up without
+> re-downloading: in *Finder*, drag `Booking.app` out of Applications onto the
+> Desktop, run `xattr -dr com.apple.quarantine ~/Desktop/Booking.app`, and drag it
+> back. Finder is allowed to move apps, so nothing blocks it.
 
 Afterwards, **Booking → Check for Updates…** tells you when there is a newer one.
 
@@ -57,12 +74,17 @@ inside the app bundle, so nothing is lost:
   On hold, Festival (not now), Missing info, Dead — from the dates and notes in
   your CSV, and picks the next batch to contact.
 - **Every rule is editable.** The thresholds that decide all of the above are
-  yours to change, and the app re-classifies as you change them.
+  yours to change, and the app re-classifies as you change them — the **Logic**
+  button both draws the decision tree and lets you edit the numbers behind it.
 - **Email templates per band and language**, with light rich text, inline
   images, and `{{placeholders}}` filled in per venue.
+- **German articles worked out for you.** Write `in {{article}} {{venue}}` and it
+  becomes “in der Kulturfabrik” but “im Kulturzentrum”. See below.
 - **Drafts straight into Apple Mail**, one venue at a time or in bulk — or send
   for real over SMTP, now or at a scheduled time, with the `Auto` column
   deciding per venue.
+- **Keeps `Last emailed` and the reply status honest** by reading the mail
+  account itself, and always as edits you approve.
 - **Map view** of your venues, with offline-seeded coordinates.
 
 ## Building it yourself
@@ -84,7 +106,14 @@ Other scripts:
 npm run clean:build   # delete the built .dmg/.zip once a release is published
 npm run check:drift   # diff src/core against the original web app (informational)
 npm run verify:csv    # prove the CSV format is still byte-compatible with it
+npm run bench:core    # time the load pipeline at 250 / 1000 / 3000 venues
+npm run build:helper  # compile just the Swift on-device-model helper
 ```
+
+`npm run build` compiles a small Swift executable (`resources/helpers/`) that
+reaches Apple's on-device model — see *German articles* below. It needs the Xcode
+Command Line Tools; without them the build still succeeds and the feature simply
+reports itself unavailable.
 
 On first launch the app asks where your venue list lives.
 
@@ -102,6 +131,7 @@ Everything else sits in `~/Library/Application Support/Booking/`:
 | `secrets.json` | GitHub token and mail password, encrypted (see below) |
 | `schedule.json` | scheduled bulk runs, with their rendered messages |
 | `geo_cache.json` | city → coordinates, seeded from the bundled snapshot |
+| `article_cache.json` | venue name → German grammatical gender, plus your corrections |
 | `templates/` | `templates.json` plus `assets/` for inline images |
 
 ### Storage adapters
@@ -178,6 +208,59 @@ rendered text, so a placeholder still works when part of it is bold.
 Bodies support bold, italic, underline, lists, links, inline images, and a
 "video link" block — a thumbnail wrapped in a link, because no mail client will
 play an embedded video.
+
+## German articles
+
+German needs a different word in front of the same venue depending on two things,
+and only one of them is about the venue:
+
+- **Gender** — *die* Fabrik, *das* Kulturzentrum, *der* Jazzkeller. A property of
+  the name.
+- **Case** — decided by the words *around* it. “in **der** Fabrik”, but “für
+  **die** Fabrik”, and “wegen **der** Fabrik”. Same venue, same gender.
+
+So write `{{article}}` where the article belongs and let the app do both:
+
+| Template | Result |
+| --- | --- |
+| `Wir spielen in {{article}} {{venue}}` | Wir spielen **in der** Kulturfabrik |
+| `Wir spielen in {{article}} {{venue}}` | Wir spielen **im** Kulturzentrum |
+| `ein Konzert für {{article}} {{venue}}` | ein Konzert **für den** Hof |
+| `Wir kommen gerne in {{article}} {{venue}}` | Wir kommen gerne **ins** Kulturzentrum |
+
+Note the last two rows. The preposition sets the case, and `in dem` contracts to
+`im` on its own — a verb of motion a few words earlier is what flips “im” to
+“ins”. That half is ordinary rules, in `src/core/germanArticles.js`, and covered
+by tests.
+
+The gender is the part that needs judgement, and it comes from **Apple's
+on-device model** (macOS 26+, Apple Silicon, Apple Intelligence switched on).
+Nothing leaves your Mac, there is no API key, and each venue is only ever asked
+about once — the answer is cached in `article_cache.json` forever. Genders are
+fetched for the venues in the run you are about to send, never for the whole
+table.
+
+If Apple Intelligence is off or unavailable, drafting still works: `{{article}}`
+is left out and flagged as missing, the same way an empty `{{contact}}` is.
+Settings ▸ Mail templates shows the live status and how to turn it on.
+
+## Keeping the date columns honest
+
+Two columns describe things that happened in your mail account, so the app can
+read them from there. **Settings ▸ Mail settings**:
+
+- **`Last emailed`** — either stamped with today's date whenever you draft or
+  send (no server access, but blind to anything you sent from Mail itself), or
+  read from your **Sent** mailbox over IMAP, which catches everything.
+- **Reply status** — read from your inbox over IMAP, telling a real answer apart
+  from an out-of-office auto-responder (`Auto-Submitted`, `Precedence`, and the
+  usual subject lines).
+
+A sync **never writes to your CSV**. It stages the dates as pending edits, just
+like typing them in, and you press Save. Dates already in the CSV are only ever
+moved forward, never back, so a hand-typed date is never lost to a short scan
+window. Only envelopes are fetched — never message bodies. It runs from the ↻
+button, and optionally once when the app opens.
 
 ## Apple Mail drafts
 

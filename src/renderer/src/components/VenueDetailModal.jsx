@@ -442,6 +442,7 @@ export default function VenueDetailModal({ rowIndex, row, edits, onEdit, onClose
               draftedAtIso={draftedAtIso}
               onDraftCreated={onDraftCreated}
               onSent={onSent}
+              showSend
             />
           {editCount > 0 ? (
             <button

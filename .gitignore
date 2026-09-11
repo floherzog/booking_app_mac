@@ -4,3 +4,6 @@ dist/
 release/
 .DS_Store
 *.log
+
+# Built by scripts/build-helper.mjs from resources/helpers/article-helper/
+resources/helpers/bin/

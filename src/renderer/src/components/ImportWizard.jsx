@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { APP_COLUMNS } from '@core/constants'
 import { parseCsvRaw } from '@core/csv'
 import { readFileText } from '../lib/csvFile'
@@ -7,7 +7,7 @@ import { guessMapping, applyMapping, mappedCount } from '@core/importMap'
 const NONE = '' // sentinel: "don't import this app column"
 const REQUIRED = ['Venue', 'Band', 'Email']
 
-export default function ImportWizard({ rows = [], onImport, onBack, onClose }) {
+export default function ImportWizard({ rows = [], onImport, onBack, onClose, preloaded = null }) {
   const [step, setStep] = useState('file') // 'file' | 'mode' | 'map'
   const [parsed, setParsed] = useState(null) // { headers, rows, name, path }
   // Importing only fills the table; the file it came from is not the app's CSV
@@ -23,17 +23,22 @@ export default function ImportWizard({ rows = [], onImport, onBack, onClose }) {
 
   async function handleFile(file) {
     if (!file) return
+    await ingest({ text: await readFileText(file), name: file.name, path: window.bookingApi.filePathFor(file) })
+  }
+
+  // Shared by the drop/pick path and by `preloaded`, which first-run uses to hand
+  // over a file the user already chose whose columns need mapping.
+  async function ingest({ text, name, path }) {
     setError('')
     setBusy(true)
     try {
-      const text = await readFileText(file)
       const { headers, rows: srcRows } = await parseCsvRaw(text)
       if (!headers.length || !srcRows.length) {
         setError('No rows found in that file. Is it a CSV with a header row?')
         setBusy(false)
         return
       }
-      setParsed({ headers, rows: srcRows, name: file.name, path: window.bookingApi.filePathFor(file) })
+      setParsed({ headers, rows: srcRows, name, path })
       setMapping(guessMapping(headers))
       setStep(hasExisting ? 'mode' : 'map')
       if (!hasExisting) setMode('replace')
@@ -43,6 +48,13 @@ export default function ImportWizard({ rows = [], onImport, onBack, onClose }) {
       setBusy(false)
     }
   }
+
+  useEffect(() => {
+    if (preloaded?.text) ingest(preloaded)
+    // Runs once for the file first-run handed over; re-ingesting on every render
+    // would fight the wizard's own step state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preloaded])
 
   function handlePick(e) {
     const file = e.target.files?.[0]

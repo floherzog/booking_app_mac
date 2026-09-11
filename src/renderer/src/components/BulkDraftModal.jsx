@@ -4,6 +4,8 @@ import {
   deliveryForRow, summarizeDelivery, defaultScheduleValue, parseLocalDateTime, pendingJobs,
 } from '@core/delivery'
 import { prepareDraft, deliverPrepared, draftKey } from '../lib/drafts'
+import { useGenders } from '../lib/genders'
+import { languageForRow } from '@core/templates'
 
 function whenLabel(iso) {
   const d = new Date(iso)
@@ -38,14 +40,26 @@ export default function BulkDraftModal({ rows, filteredRows, templates, language
     return () => { alive = false; off() }
   }, [])
 
+  // The venues this run would touch — worked out before the preflight so their
+  // German genders can be fetched for just these, not for the whole table.
+  const picked = useMemo(() => selectRows(source, { rows, filteredRows }), [source, rows, filteredRows])
+
+  const articlesOn = (settings?.templates?.germanArticles ?? 'ondevice') !== 'off'
+  const germanVenues = useMemo(
+    () => (articlesOn ? picked.filter(r => languageForRow(r, languages) === 'de').map(r => r['Venue']) : []),
+    [picked, languages, articlesOn],
+  )
+  const genderVersion = useGenders(germanVenues, articlesOn)
+
   // Preflight: everything that could go wrong, worked out before anything runs.
   const candidates = useMemo(() => {
-    return selectRows(source, { rows, filteredRows }).map(row => ({
+    return picked.map(row => ({
       row,
       prepared: prepareDraft(row, templates, languages, settings),
       delivery: deliveryForRow(row, mode),
     }))
-  }, [source, mode, rows, filteredRows, templates, languages, settings])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [picked, mode, templates, languages, settings, genderVersion])
 
   const eligible = candidates.filter(c => c.prepared.ok && !skipped.has(c.row._idx))
   const blocked = candidates.filter(c => !c.prepared.ok)

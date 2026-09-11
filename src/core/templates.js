@@ -1,10 +1,12 @@
+import { applyGermanArticles, hasArticlePlaceholder } from './germanArticles.js'
+
 // Email templates are keyed by band × language. The venue's Country decides the
 // language through the configurable country→language map; everything else falls
 // back to the default language.
 
 // The fields a template may interpolate, written as {{name}} in the subject and
 // in the body's text. Lowercase on purpose — they read as prose, not columns.
-export const PLACEHOLDERS = ['venue', 'contact', 'city', 'country', 'dates', 'text', 'band']
+export const PLACEHOLDERS = ['venue', 'contact', 'city', 'country', 'dates', 'text', 'band', 'article']
 
 const PLACEHOLDER_FIELDS = {
   venue: 'Venue',
@@ -34,6 +36,10 @@ export const DEFAULT_TEMPLATE_OPTIONS = {
     showLabel: true,               // the "▶ Title" text link under the thumbnail
     playOverlay: true,             // a play button drawn onto the thumbnail
   },
+  // {{article}} in a German template needs the venue's grammatical gender, which
+  // Apple's on-device model supplies. 'off' leaves the placeholder unresolved and
+  // flagged; nothing here ever reaches the network.
+  germanArticles: 'ondevice',      // 'ondevice' | 'off'
 }
 
 function norm(s) {
@@ -126,7 +132,23 @@ export function resolveTemplate(templates, row, languages) {
 // keeps the plain behaviour: whatever is in the Contact column, or ''.
 export function substitutePlaceholders(str, row, opts = {}) {
   const empties = new Set()
-  const text = String(str ?? '').replace(PLACEHOLDER_RE, (match, rawName) => {
+
+  // {{article}} resolves first and separately: it is the only placeholder whose
+  // value depends on the words around it rather than on a column. With no gender
+  // for the venue — an English template, or the on-device model unavailable — the
+  // token is dropped rather than mailed out raw, and reported like an empty field
+  // so the UI can warn before anything is sent.
+  let source = String(str ?? '')
+  if (hasArticlePlaceholder(source)) {
+    if (opts.gender) {
+      source = applyGermanArticles(source, opts.gender)
+    } else {
+      source = source.replace(/\{\{\s*article\s*\}\}\s*/gi, '')
+      empties.add('article')
+    }
+  }
+
+  const text = source.replace(PLACEHOLDER_RE, (match, rawName) => {
     const name = rawName.toLowerCase()
     const field = PLACEHOLDER_FIELDS[name]
     if (!field) return match // not one of ours — leave it alone

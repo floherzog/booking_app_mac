@@ -11,6 +11,7 @@ import { mergeRules } from '@core/rules'
 import { RulesProvider } from './lib/rulesContext'
 import { getAdapter, isStorageConfigured } from './lib/storageAdapters'
 import FirstRun from './components/FirstRun'
+import { syncFromMail, mailSyncEnabled } from './lib/mailSync'
 import TemplatesManager from './components/TemplatesManager'
 import BulkDraftModal from './components/BulkDraftModal'
 import { listTemplates } from './lib/templates'
@@ -48,6 +49,10 @@ export default function App() {
   // When Settings opened one, it gets a "← Settings" button back to where the
   // user came from.
   const [cameFromSettings, setCameFromSettings] = useState(false)
+  // A CSV chosen on first run whose columns don't match ours, awaiting mapping.
+  const [importSeed, setImportSeed] = useState(null)
+  const [syncing, setSyncing] = useState(false)
+  const [syncNote, setSyncNote] = useState('')
   const [showBulkDraft, setShowBulkDraft] = useState(false)
   const [templates, setTemplates] = useState([])
   // Transient per-row draft feedback for the table action.
@@ -191,6 +196,53 @@ export default function App() {
     }).catch(e => setError(e.message))
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // A long IMAP scan must stage against the rows as they are when it finishes,
+  // not the snapshot it started with.
+  const rowsRef = useRef(rows)
+  rowsRef.current = rows
+
+  // Ask the mail account what it knows about these venues and stage the result.
+  //
+  // Staged, not written: the edits land in the same `edits` map a hand edit uses,
+  // so they show as pending changes and go to the CSV only when Save is pressed.
+  const runMailSync = useCallback(async ({ silent = false } = {}) => {
+    if (!mailSyncEnabled(settings)) return
+    setSyncing(true)
+    if (!silent) setSyncNote('')
+    try {
+      const result = await syncFromMail(rowsRef.current)
+      if (result?.error) { setSyncNote(result.error); return }
+      const found = result?.edits || []
+      found.forEach(e => handleEdit(e._idx, e.field, e.value))
+      setSyncNote(found.length
+        ? `Mail sync staged ${found.length} change${found.length !== 1 ? 's' : ''} — review and Save.`
+        : 'Mail sync found nothing new.')
+    } catch (e) {
+      setSyncNote(e.message)
+    } finally {
+      setSyncing(false)
+    }
+    // handleEdit is stable enough for this; rows are read through a ref so a long
+    // scan never stages against a stale snapshot.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings])
+
+  // The ↻ button: reload the CSV, then (when configured) ask the mail account.
+  // Order matters — load() clears staged edits, so syncing first would wipe them.
+  const refreshAll = useCallback(async () => {
+    await load()
+    await runMailSync({ silent: true })
+  }, [load, runMailSync])
+
+  // Once after the first load, if the user asked for it.
+  const syncedOnOpen = useRef(false)
+  useEffect(() => {
+    if (syncedOnOpen.current || loading || rows.length === 0) return
+    if (!settings?.mail?.sync?.onOpen || !mailSyncEnabled(settings)) return
+    syncedOnOpen.current = true
+    runMailSync({ silent: true })
+  }, [loading, rows.length, settings, runMailSync])
+
   const refreshTemplates = useCallback(() => {
     listTemplates().then(setTemplates).catch(() => {})
   }, [])
@@ -238,6 +290,12 @@ export default function App() {
     }
   }
 
+  // Rules are edited in the Logic modal (which also draws them), reachable from
+  // the main view and from Settings ▸ Rules. Both land here.
+  async function handleRulesSave(nextRules) {
+    await persist({ ...settings, rules: nextRules })
+  }
+
   async function handleSettingsSave(form) {
     const bands = normalizeBands(form.bands)
     propagateBandChanges(settings.bands, bands)
@@ -262,7 +320,11 @@ export default function App() {
 
   // A sent email is the opposite of a draft: it belongs on the row. Staged as an
   // ordinary edit so it goes through SaveModal like every other change.
+  // Stamping today's date on a send is one of three options for keeping this
+  // column honest (Settings ▸ Mail settings): the IMAP scan reads the real date
+  // from Sent instead, and "off" leaves the column entirely to the user.
   function recordSend(row) {
+    if ((settings?.mail?.sync?.lastEmailed || 'onSend') !== 'onSend') return
     handleEdit(row._idx, 'Last emailed', formatDateDDMMYY(new Date()))
   }
 
@@ -503,13 +565,27 @@ export default function App() {
   // No storage configured yet: point the user at a CSV before anything else.
   if (!isStorageConfigured(settings)) {
     return (
-      <FirstRun
-        settings={settings}
-        onConfigured={async storage => {
-          const saved = await persist({ ...settings, storage: { ...settings.storage, ...storage } })
-          await load(saved)
-        }}
-      />
+      <>
+        <FirstRun
+          settings={settings}
+          onConfigured={async storage => {
+            const saved = await persist({ ...settings, storage: { ...settings.storage, ...storage } })
+            await load(saved)
+          }}
+          onNeedsMapping={seed => setImportSeed(seed)}
+        />
+        {importSeed && (
+          <ImportWizard
+            rows={[]}
+            preloaded={importSeed}
+            // There is no CSV yet, so the file being mapped has to become one —
+            // otherwise the import would fill a table with nowhere to save to.
+            onImport={(mapped, mode, opts = {}) =>
+              handleImport(mapped, mode, { ...opts, adoptPath: opts.adoptPath || importSeed.path })}
+            onClose={() => setImportSeed(null)}
+          />
+        )}
+      </>
     )
   }
 
@@ -546,7 +622,7 @@ export default function App() {
       )}
       <button onClick={() => setShowBulkDraft(true)} className={iconBtn} title="Create drafts in Mail">✉</button>
       <button onClick={() => setShowLogic(true)} className={iconBtn} title="How venues are classified">ⓘ</button>
-      <button onClick={() => load()} disabled={loading} className={iconBtn}>{loading ? '…' : '↻'}</button>
+      <button onClick={refreshAll} disabled={loading || syncing} className={iconBtn}>{loading || syncing ? '…' : '↻'}</button>
       <button onClick={() => setShowSettings(true)} className={iconBtn} title="Settings">{SlidersIcon}</button>
     </div>
   )
@@ -591,13 +667,20 @@ export default function App() {
             )}
             <button onClick={() => setShowBulkDraft(true)} className="text-sm text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors" title="Create drafts in Mail for several venues">✉ Drafts</button>
             <button onClick={() => setShowLogic(true)} className="text-sm text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors" title="How venues are classified">ⓘ Logic</button>
-            <button onClick={() => load()} disabled={loading} className="text-sm text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-40 transition-colors">{loading ? 'Loading…' : '↻'}</button>
+            <button onClick={refreshAll} disabled={loading || syncing} title={mailSyncEnabled(settings) ? 'Reload the CSV and check the mail account' : 'Reload the CSV'} className="text-sm text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-40 transition-colors">{loading ? 'Loading…' : syncing ? 'Checking mail…' : '↻'}</button>
             <button onClick={() => setShowSettings(true)} className="text-sm text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors" title="Settings">⚙</button>
           </div>
         </div>
 
         {error && (
           <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md p-3 text-sm text-red-700 dark:text-red-400">{error}</div>
+        )}
+
+        {syncNote && (
+          <div className="flex items-start justify-between gap-3 bg-gray-50 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700 rounded-md px-3 py-2 text-sm text-gray-600 dark:text-gray-300">
+            <span>{syncNote}</span>
+            <button onClick={() => setSyncNote('')} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 leading-none shrink-0">&times;</button>
+          </div>
         )}
 
         {loading && rows.length === 0 && (
@@ -724,6 +807,7 @@ export default function App() {
           rows={rows}
           onOpenImport={() => { setShowSettings(false); setCameFromSettings(true); setShowImport(true) }}
           onOpenTemplates={() => { setShowSettings(false); setCameFromSettings(true); setShowTemplates(true) }}
+          onOpenLogic={() => { setShowSettings(false); setCameFromSettings(true); setShowLogic(true) }}
           onSave={handleSettingsSave}
           onPersist={form => persist({ ...settings, ...form })}
           onClose={() => setShowSettings(false)}
@@ -769,7 +853,15 @@ export default function App() {
           onClose={() => setMergeTarget(null)}
         />
       )}
-      {showLogic && <LogicModal onClose={() => setShowLogic(false)} />}
+      {showLogic && (
+        <LogicModal
+          onSaveRules={handleRulesSave}
+          onClose={() => {
+            setShowLogic(false)
+            if (cameFromSettings) { setCameFromSettings(false); setShowSettings(true) }
+          }}
+        />
+      )}
       {venueDetail !== null && rows.find(r => r._idx === venueDetail) && (
         <VenueDetailModal
           rowIndex={venueDetail}

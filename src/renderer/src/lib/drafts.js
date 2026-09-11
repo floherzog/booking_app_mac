@@ -1,5 +1,6 @@
 import { resolveTemplate, substituteTemplate, contactOptionsFor } from '@core/templates'
 import { renderEmailHtml } from '@core/emailHtml'
+import { genderOf } from './genders'
 
 // The key a created draft is logged under. Venue+City+Band identifies a venue
 // row independently of its position in the CSV, so the log survives re-sorting
@@ -31,6 +32,11 @@ export function prepareDraft(row, templates, languages, settings) {
   }
 
   const opts = settings ? contactOptionsFor(row, settings) : {}
+  // Only German templates have articles to decline, and only when the feature is
+  // on — everywhere else {{article}} stays unresolved and is reported as empty.
+  if (resolved.language === 'de' && (settings?.templates?.germanArticles ?? 'ondevice') !== 'off') {
+    opts.gender = genderOf(row['Venue'])
+  }
   const substituted = substituteTemplate(resolved.template, row, opts)
   const { html, cids } = renderEmailHtml(substituted.bodyJSON)
 

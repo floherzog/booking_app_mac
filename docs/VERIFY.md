@@ -246,3 +246,75 @@ Artifacts land in `~/Builds/booking_app_mac/`, not in the repo — see
       found inside the packaged app.
 - [ ] Secrets: after rebuilding with the *same* bundle identity, stored tokens
       still work. (Changing `appId` invalidates them — see the README.)
+
+## A big CSV (0.4.0)
+
+The app is used with lists an order of magnitude apart. `npm run bench:core` times
+the pure part; these are the bits it cannot measure.
+
+- [ ] Generate a 3000-row CSV and open it. The table scrolls smoothly and typing
+      in a cell is instant. (Before virtualisation the table built ~22 cells per
+      row for every row, twice — a card list and a table, one hidden by CSS.)
+- [ ] With a filter active, **select all** still selects every *filtered* row, not
+      just the ones on screen. This is the regression virtualising a table invites.
+- [ ] Sorting by each column still works, and the row heights stay stable.
+- [ ] Open the Map. It paints known cities immediately and shows
+      *“N cities not located — locate (~M min)”* rather than freezing. Press it:
+      a counter appears, **Stop** halts it, and reopening the map resumes from
+      where it stopped rather than starting over.
+- [ ] `npm run bench:core` — `computeDuplicates` at 3000 venues stays in the tens
+      of milliseconds, not the hundreds.
+
+## Logic, settings and sending (0.4.0)
+
+- [ ] The **Logic** button opens the diagram; the **Rules** tab edits the numbers
+      and the diagram redraws as you type. Save, reopen — the numbers stuck and
+      venues reclassified.
+- [ ] Settings ▸ Rules opens the same modal, and closing it returns to Settings.
+- [ ] A dirty Rules tab does *not* close when you click the backdrop.
+- [ ] Settings shows **Data & storage**, **Mail templates**, **Mail settings** —
+      Import/Export now live under Data & storage.
+- [ ] The venue detail view has a **Send now** button that needs two clicks and
+      sends exactly once.
+
+## Mail sync (0.4.0)
+
+Needs a real account — see `VERIFY-MAIL.md`.
+
+- [ ] Settings ▸ Mail settings: pick *Read the real date from my Sent mailbox* and
+      tick the reply option. Press ↻.
+- [ ] Dates arrive as **pending edits**, not written to the CSV. Discard them and
+      the file is untouched.
+- [ ] A venue whose CSV date is newer than the mailbox is left alone (never
+      rewound).
+- [ ] An out-of-office reply lands as `auto-reply: …`, a real reply as `reply: …`.
+- [ ] A recorded `auto-reply` is upgraded when a genuine reply exists, but a
+      recorded real reply is never downgraded.
+- [ ] Turn both off: ↻ reloads the CSV and touches nothing else.
+
+## German articles (0.4.0)
+
+- [ ] Settings ▸ Mail templates reports **Ready** (or explains exactly why not).
+- [ ] Draft to venues called *Kulturfabrik*, *Kulturzentrum* and *Jazzkeller* from
+      a German template containing `in {{article}} {{venue}}`: *in der
+      Kulturfabrik*, *im Kulturzentrum*, *im Jazzkeller*.
+- [ ] `für {{article}} {{venue}}` gives *für die Kulturfabrik*.
+- [ ] Drafting the same venue twice is instant the second time (cached).
+- [ ] Switch Apple Intelligence off in System Settings: drafting still works,
+      `{{article}}` is dropped, and the draft reports an empty field.
+- [ ] An English template is unaffected either way.
+
+## First run with someone else's CSV (0.4.0)
+
+- [ ] Point a fresh install at a CSV whose headers are *not* the app's (e.g.
+      `Name;Ort;E-Mail`). The import wizard's mapping step opens instead of a
+      table of blank columns.
+- [ ] Mapping and importing configures storage to that file, so Save writes back
+      to it.
+- [ ] Pointing it at a CSV the app itself wrote skips the wizard, as before.
+
+## Updates (0.4.0)
+
+- [ ] Settings ▸ General has *Check automatically when the app starts*.
+- [ ] With it on and no newer release: launching says nothing at all.
+- [ ] With it on and offline: launching says nothing at all.

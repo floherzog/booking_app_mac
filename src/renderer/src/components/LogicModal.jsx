@@ -1,6 +1,9 @@
+import { useEffect, useState } from 'react'
 import { STATUS_META } from '@core/constants'
 import { buildLogicNodes, describeWindow, describeBatchRule } from '@core/logicTree'
+import { validateRules } from '@core/rules'
 import { useRules } from '../lib/rulesContext'
+import RulesEditor from './RulesEditor'
 
 // A leaf: either a status outcome (blue-ish status pill) or a "keep going" fall-through.
 function Outcome({ value }) {
@@ -105,48 +108,141 @@ function Gate({ node, isLast }) {
   )
 }
 
-export default function LogicModal({ onClose }) {
+export default function LogicModal({ onClose, onSaveRules }) {
   const rules = useRules()
-  const NODES = buildLogicNodes(rules)
+  const [tab, setTab] = useState('flow')
+  // The diagram renders from the draft, so editing a number redraws the gates it
+  // affects straight away — that is the whole reason these two live together now.
+  const [draft, setDraft] = useState(rules)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const [savedAt, setSavedAt] = useState(0)
+
+  const dirty = JSON.stringify(draft) !== JSON.stringify(rules)
+  const ruleErrors = validateRules(draft)
+  const editable = typeof onSaveRules === 'function'
+
+  // Adopt whatever was persisted, unless there are unsaved edits in flight.
+  useEffect(() => { if (!dirty) setDraft(rules) }, [rules]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!savedAt) return
+    const t = setTimeout(() => setSavedAt(0), 2500)
+    return () => clearTimeout(t)
+  }, [savedAt])
+
+  async function save() {
+    if (ruleErrors.length) return
+    setSaving(true)
+    setError('')
+    try {
+      await onSaveRules(draft)
+      setSavedAt(Date.now())
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const NODES = buildLogicNodes(draft)
+  const tabBtn = active => `px-3 py-1 text-sm rounded-md transition-colors ${active
+    ? 'bg-gray-800 text-white dark:bg-gray-200 dark:text-gray-900'
+    : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'}`
+
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[1100] p-4" onClick={onClose}>
+    <div
+      className="fixed inset-0 bg-black/40 flex items-center justify-center z-[1100] p-4"
+      // Closing on a stray backdrop click is fine while only reading, but it must
+      // never throw away unsaved rule edits.
+      onClick={dirty ? undefined : onClose}
+    >
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
-        <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
-          <div>
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">How venues get classified</h2>
-            <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">First gate that matches wins — the orange trunk continues on "no"</p>
+        <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700 flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+              {tab === 'flow' ? 'How venues get classified' : 'The numbers behind it'}
+            </h2>
+            <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+              {tab === 'flow'
+                ? 'First gate that matches wins — the orange trunk continues on "no"'
+                : 'Change a number and the flow above updates with it'}
+            </p>
           </div>
-          <button onClick={onClose} className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 text-xl leading-none">&times;</button>
+          <div className="flex items-center gap-2 shrink-0">
+            {editable && (
+              <div className="flex gap-1 bg-gray-50 dark:bg-gray-900 rounded-lg p-0.5">
+                <button type="button" onClick={() => setTab('flow')} className={tabBtn(tab === 'flow')}>Flow</button>
+                <button type="button" onClick={() => setTab('rules')} className={tabBtn(tab === 'rules')}>
+                  Rules{ruleErrors.length > 0 && <span className="ml-1 text-red-400">•</span>}
+                </button>
+              </div>
+            )}
+            <button onClick={onClose} className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 text-xl leading-none">&times;</button>
+          </div>
         </div>
 
         <div className="overflow-y-auto flex-1 px-6 py-5">
-          {/* Root */}
-          <div className="flex gap-3">
-            <div className="flex flex-col items-center shrink-0">
-              <span className="mt-1 w-4 h-4 rounded-full bg-gray-700 dark:bg-gray-200 ring-4 ring-gray-200 dark:ring-gray-700 z-10" aria-hidden />
-              <div className="flex-1 w-px bg-gray-300 dark:bg-gray-600 my-1 min-h-[14px]" />
-            </div>
-            <div className="flex-1 min-w-0 pb-6">
-              <p className="text-sm font-semibold text-gray-800 dark:text-gray-200 mt-0.5">Every venue</p>
-              <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">Evaluated top to bottom.</p>
-            </div>
-          </div>
+          {tab === 'rules' ? (
+            <RulesEditor rules={draft} onChange={setDraft} />
+          ) : (
+            <>
+              {/* Root */}
+              <div className="flex gap-3">
+                <div className="flex flex-col items-center shrink-0">
+                  <span className="mt-1 w-4 h-4 rounded-full bg-gray-700 dark:bg-gray-200 ring-4 ring-gray-200 dark:ring-gray-700 z-10" aria-hidden />
+                  <div className="flex-1 w-px bg-gray-300 dark:bg-gray-600 my-1 min-h-[14px]" />
+                </div>
+                <div className="flex-1 min-w-0 pb-6">
+                  <p className="text-sm font-semibold text-gray-800 dark:text-gray-200 mt-0.5">Every venue</p>
+                  <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">Evaluated top to bottom.</p>
+                </div>
+              </div>
 
-          {NODES.map((node, i) => (
-            <Gate key={i} node={node} isLast={i === NODES.length - 1} />
-          ))}
+              {NODES.map((node, i) => (
+                <Gate key={i} node={node} isLast={i === NODES.length - 1} />
+              ))}
+            </>
+          )}
         </div>
 
         <div className="px-6 py-3 border-t border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 rounded-b-xl">
-          <div className="flex items-center gap-4 mb-1.5 text-[11px] text-gray-400 dark:text-gray-500">
-            <span className="inline-flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-orange-400" /> gate</span>
-            <span className="inline-flex items-center gap-1.5"><span className="text-emerald-600 dark:text-emerald-400 font-bold">yes</span> / <span className="text-rose-400 font-bold">no</span> branch</span>
-            <span className="inline-flex items-center gap-1.5"><span className="px-1.5 py-0.5 rounded-full bg-gray-200 dark:bg-gray-700">pill</span> outcome</span>
+          {tab === 'flow' && (
+            <div className="flex items-center gap-4 mb-1.5 text-[11px] text-gray-400 dark:text-gray-500">
+              <span className="inline-flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-orange-400" /> gate</span>
+              <span className="inline-flex items-center gap-1.5"><span className="text-emerald-600 dark:text-emerald-400 font-bold">yes</span> / <span className="text-rose-400 font-bold">no</span> branch</span>
+              <span className="inline-flex items-center gap-1.5"><span className="px-1.5 py-0.5 rounded-full bg-gray-200 dark:bg-gray-700">pill</span> outcome</span>
+            </div>
+          )}
+          <div className="flex items-center justify-between gap-4">
+            <p className="text-xs text-gray-400 dark:text-gray-500 min-w-0">
+              {error ? <span className="text-red-500">{error}</span>
+                : ruleErrors.length > 0 ? <span className="text-red-500">{ruleErrors[0]}</span>
+                : savedAt ? <span className="text-emerald-600 dark:text-emerald-400">Saved</span>
+                : dirty ? 'Unsaved changes'
+                : <>{describeWindow(draft)} {describeBatchRule(draft)} "Action needed" = Send + Follow Up + Never Contacted.</>}
+            </p>
+            {editable && (
+              <div className="flex items-center gap-2 shrink-0">
+                {dirty && (
+                  <button
+                    type="button"
+                    onClick={() => setDraft(rules)}
+                    className="text-sm font-medium px-3 py-1.5 rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:border-gray-400 transition-colors"
+                  >
+                    Revert
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={save}
+                  disabled={!dirty || saving || ruleErrors.length > 0}
+                  className="bg-indigo-600 text-white text-sm font-medium px-4 py-1.5 rounded-md hover:bg-indigo-700 transition-colors disabled:opacity-40"
+                >
+                  {saving ? 'Saving…' : 'Save'}
+                </button>
+              </div>
+            )}
           </div>
-          <p className="text-xs text-gray-400 dark:text-gray-500">
-            {describeWindow(rules)} {describeBatchRule(rules)}{' '}
-            "Action needed" = Send + Follow Up + Never Contacted.
-          </p>
         </div>
       </div>
     </div>

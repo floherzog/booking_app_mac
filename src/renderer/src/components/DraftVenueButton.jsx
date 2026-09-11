@@ -1,19 +1,31 @@
 import { useState, useMemo } from 'react'
 import RelDate from './RelDate'
 import { prepareDraft, createDraft, createDraftViaAppleScript, sendEmail } from '../lib/drafts'
+import { useGenders } from '../lib/genders'
+import { languageForRow } from '@core/templates'
 
 // The per-venue draft action. The IMAP path is primary; the AppleScript one sits
 // in the overflow because it drives Mail's window by keystroke and needs macOS
 // permissions, so it is only ever sensible for a single draft.
-export default function DraftVenueButton({ row, templates, languages, settings, draftedAtIso, onDraftCreated, onSent }) {
+// `showSend` promotes sending from the overflow to a button of its own. The venue
+// detail view sets it — there is room there, and sending one venue you are already
+// looking at is a normal thing to want. In the table row it stays in the overflow.
+export default function DraftVenueButton({ row, templates, languages, settings, draftedAtIso, onDraftCreated, onSent, showSend = false }) {
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState(null) // { ok, message }
   const [overflow, setOverflow] = useState(false)
   const [confirmSend, setConfirmSend] = useState(false)
 
+  // A German venue needs its grammatical gender before {{article}} can resolve.
+  // Fetching it re-renders, and the memo below has to notice that.
+  const needsGender = languageForRow(row, languages) === 'de'
+    && (settings?.templates?.germanArticles ?? 'ondevice') !== 'off'
+  const genderVersion = useGenders([row['Venue']], needsGender)
+
   const prepared = useMemo(
     () => prepareDraft(row, templates, languages, settings),
-    [row, templates, languages, settings],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [row, templates, languages, settings, genderVersion],
   )
 
   async function run(fn, successMessage, { sent = false } = {}) {
@@ -57,6 +69,25 @@ export default function DraftVenueButton({ row, templates, languages, settings, 
           {busy ? 'Drafting…' : 'Draft in Mail'}
         </button>
 
+        {showSend && (
+          <button
+            onClick={() => {
+              // Two clicks rather than a system confirm(): Electron's renderer
+              // modals are worth avoiding, and this one actually sends mail.
+              if (!confirmSend) { setConfirmSend(true); return }
+              run(sendEmail, 'Email sent', { sent: true })
+            }}
+            onBlur={() => setTimeout(() => setConfirmSend(false), 150)}
+            disabled={!prepared.ok || busy}
+            title={prepared.ok ? `Send over SMTP to ${row['Email']} right now` : prepared.reason}
+            className={`text-sm font-medium px-3 py-1.5 rounded-md transition-colors disabled:opacity-40 ${confirmSend
+              ? 'bg-rose-600 text-white hover:bg-rose-700'
+              : 'border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:border-gray-400 dark:hover:border-gray-500'}`}
+          >
+            {busy ? 'Sending…' : confirmSend ? 'Really send?' : 'Send now'}
+          </button>
+        )}
+
         <div className="relative">
           <button
             onClick={() => { setOverflow(v => !v); setConfirmSend(false) }}
@@ -69,24 +100,26 @@ export default function DraftVenueButton({ row, templates, languages, settings, 
           </button>
           {overflow && (
             <div className="absolute right-0 bottom-full mb-1 z-10 w-64 rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg py-1">
-              <button
-                onMouseDown={e => {
-                  e.preventDefault()
-                  // Two clicks rather than a system confirm(): this sits one item
-                  // away from the ordinary draft button, and Electron's modal
-                  // dialogs are worth avoiding in the renderer.
-                  if (!confirmSend) { setConfirmSend(true); return }
-                  run(sendEmail, 'Email sent', { sent: true })
-                }}
-                className="block w-full text-left px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-700 border-b border-gray-100 dark:border-gray-700"
-              >
-                <span className={`block text-xs ${confirmSend ? 'text-rose-600 dark:text-rose-400 font-medium' : 'text-gray-700 dark:text-gray-200'}`}>
-                  {confirmSend ? `Really send to ${row['Email']}?` : 'Send now instead'}
-                </span>
-                <span className="block text-[11px] text-gray-400 dark:text-gray-500">
-                  Goes out over SMTP immediately and stages a “Last emailed” edit.
-                </span>
-              </button>
+              {!showSend && (
+                <button
+                  onMouseDown={e => {
+                    e.preventDefault()
+                    // Two clicks rather than a system confirm(): this sits one item
+                    // away from the ordinary draft button, and Electron's modal
+                    // dialogs are worth avoiding in the renderer.
+                    if (!confirmSend) { setConfirmSend(true); return }
+                    run(sendEmail, 'Email sent', { sent: true })
+                  }}
+                  className="block w-full text-left px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-700 border-b border-gray-100 dark:border-gray-700"
+                >
+                  <span className={`block text-xs ${confirmSend ? 'text-rose-600 dark:text-rose-400 font-medium' : 'text-gray-700 dark:text-gray-200'}`}>
+                    {confirmSend ? `Really send to ${row['Email']}?` : 'Send now instead'}
+                  </span>
+                  <span className="block text-[11px] text-gray-400 dark:text-gray-500">
+                    Goes out over SMTP immediately and stages a “Last emailed” edit.
+                  </span>
+                </button>
+              )}
               <button
                 onMouseDown={e => { e.preventDefault(); run(createDraftViaAppleScript, 'Compose window opened in Mail') }}
                 className="block w-full text-left px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-700"

@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react'
 import { getStoredTheme, setTheme } from '../lib/theme'
 import { exportCsv } from '../lib/csvFile'
 import { validateRules } from '@core/rules'
-import RulesEditor from './RulesEditor'
 import LanguagesEditor from './LanguagesEditor'
 
 const THEMES = [
@@ -11,19 +10,20 @@ const THEMES = [
   { value: 'dark',   label: 'Dark' },
 ]
 
+// `rules` is not a pane: it opens the Logic modal, where the same numbers are
+// edited next to the diagram that explains what they do.
 const SECTIONS = [
   { id: 'general', label: 'General' },
-  { id: 'storage', label: 'Storage' },
-  { id: 'rules', label: 'Rules' },
+  { id: 'storage', label: 'Data & storage' },
+  { id: 'rules', label: 'Rules', opens: 'logic' },
   { id: 'bands', label: 'Bands' },
   { id: 'venueTypes', label: 'Venue types' },
   { id: 'languages', label: 'Languages' },
-  { id: 'templates', label: 'Templates' },
-  { id: 'mail', label: 'Mail' },
-  { id: 'data', label: 'Data' },
+  { id: 'templates', label: 'Mail templates' },
+  { id: 'mail', label: 'Mail settings' },
 ]
 
-export default function SettingsPanel({ config, rows = [], onOpenImport, onOpenTemplates, onSave, onPersist, onClose }) {
+export default function SettingsPanel({ config, rows = [], onOpenImport, onOpenTemplates, onOpenLogic, onSave, onPersist, onClose }) {
   const [form, setForm] = useState(config)
   const [section, setSection] = useState('general')
   // Theme stays a per-Mac preference in localStorage (see the note in the
@@ -32,6 +32,7 @@ export default function SettingsPanel({ config, rows = [], onOpenImport, onOpenT
   const [newBand, setNewBand] = useState('')
   const [newType, setNewType] = useState('')
   const [version, setVersion] = useState('')
+  const [articleState, setArticleState] = useState(null)
   const [updateState, setUpdateState] = useState(null) // { checking } | result
   const [githubToken, setGithubToken] = useState('')
   const [hasGithubToken, setHasGithubToken] = useState(false)
@@ -58,6 +59,7 @@ export default function SettingsPanel({ config, rows = [], onOpenImport, onOpenT
   const templateOpts = form.templates || {}
   const storage = form.storage || {}
   const mail = form.mail || {}
+  const sync = mail.sync || {}
   const ruleErrors = validateRules(form.rules)
   // Cheap and good enough: the form is a few kB of plain JSON, and this only
   // drives the footer label.
@@ -90,7 +92,7 @@ export default function SettingsPanel({ config, rows = [], onOpenImport, onOpenT
   // is the exception — it goes straight to the keychain, never into settings.
   async function handleSave(e) {
     e.preventDefault()
-    if (ruleErrors.length) { setSection('rules'); return }
+    if (ruleErrors.length) { onOpenLogic?.(); return }
     setSaving(true)
     setError('')
     try {
@@ -113,6 +115,21 @@ export default function SettingsPanel({ config, rows = [], onOpenImport, onOpenT
 
   function setMail(patch) {
     setForm(f => ({ ...f, mail: { ...f.mail, ...patch } }))
+  }
+
+  // Ask the on-device model helper what state it is in, but only when the pane
+  // that shows it is actually open.
+  useEffect(() => {
+    if (section !== 'templates' || articleState) return
+    let alive = true
+    window.bookingApi.articleAvailability()
+      .then(r => { if (alive) setArticleState(r || { ok: false, status: 'failed' }) })
+      .catch(() => { if (alive) setArticleState({ ok: false, status: 'failed', error: 'Could not reach the language helper.' }) })
+    return () => { alive = false }
+  }, [section, articleState])
+
+  function setSync(patch) {
+    setForm(f => ({ ...f, mail: { ...f.mail, sync: { ...f.mail?.sync, ...patch } } }))
   }
 
   // Test connection has to run against what is on screen, so the password is
@@ -236,7 +253,7 @@ export default function SettingsPanel({ config, rows = [], onOpenImport, onOpenT
                 <button
                   key={s.id}
                   type="button"
-                  onClick={() => setSection(s.id)}
+                  onClick={() => (s.opens === 'logic' ? onOpenLogic?.() : setSection(s.id))}
                   className={`w-full text-left px-4 py-1.5 text-sm transition-colors ${section === s.id
                     ? 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100 font-medium'
                     : 'text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700/50'}`}
@@ -302,6 +319,20 @@ export default function SettingsPanel({ config, rows = [], onOpenImport, onOpenT
                           ) : 'You are running the latest published version.'}
                       </p>
                     )}
+                    <label className="mt-3 flex items-start gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={!!form.general?.autoCheckUpdates}
+                        onChange={e => setForm(f => ({ ...f, general: { ...f.general, autoCheckUpdates: e.target.checked } }))}
+                        className="mt-0.5 rounded border-gray-300 dark:border-gray-600 text-indigo-600 focus:ring-indigo-500"
+                      />
+                      <span className="text-xs text-gray-500 dark:text-gray-400">
+                        Check automatically when the app starts
+                        <span className="block text-gray-400 dark:text-gray-500">
+                          Only says something when a newer release exists — silent when you are up to date or offline.
+                        </span>
+                      </span>
+                    </label>
                   </div>
                 </div>
               )}
@@ -426,11 +457,24 @@ export default function SettingsPanel({ config, rows = [], onOpenImport, onOpenT
                       </p>
                     </div>
                   )}
-                </div>
-              )}
 
-              {section === 'rules' && (
-                <RulesEditor rules={form.rules} onChange={rules => setForm(f => ({ ...f, rules }))} />
+                  <div className="pt-4 border-t border-gray-100 dark:border-gray-700">
+                    <p className={lbl}>Import and export</p>
+                    <div className="flex gap-2">
+                      <button type="button" onClick={handleExport} disabled={rows.length === 0} className={`${outlineBtn} flex-1`}>
+                        Export CSV
+                      </button>
+                      <button type="button" onClick={() => onOpenImport?.()} className={`${outlineBtn} flex-1`}>
+                        Import CSV…
+                      </button>
+                    </div>
+                    <p className="mt-2 text-xs text-gray-400 dark:text-gray-500">
+                      Export writes a copy wherever you point it. Import opens a guided wizard — replace the table
+                      or add to it, and match your file's columns to the app's. Changes stay in the app until you
+                      press Save.
+                    </p>
+                  </div>
+                </div>
               )}
 
               {section === 'languages' && (
@@ -519,6 +563,52 @@ export default function SettingsPanel({ config, rows = [], onOpenImport, onOpenT
                       the map in the Languages section; anything unlisted falls back to the default.
                       Templates live in the app's own folder, separate from your settings file.
                     </p>
+                  </div>
+
+                  <div className="pt-4 border-t border-gray-100 dark:border-gray-700">
+                    <p className={lbl}>German articles — <span className="font-mono">{'{{article}}'}</span></p>
+                    <label className="flex items-start gap-2.5 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={(templateOpts.germanArticles ?? 'ondevice') !== 'off'}
+                        onChange={e => setForm(f => ({ ...f, templates: { ...f.templates, germanArticles: e.target.checked ? 'ondevice' : 'off' } }))}
+                        className="mt-0.5 rounded border-gray-300 dark:border-gray-600 text-indigo-600 focus:ring-indigo-500"
+                      />
+                      <span className="text-xs text-gray-600 dark:text-gray-300">
+                        Work out der/die/das for each venue
+                        <span className="block text-gray-400 dark:text-gray-500">
+                          Put <span className="font-mono">{'{{article}}'}</span> where the article belongs —
+                          <span className="font-mono"> in {'{{article}}'} {'{{venue}}'}</span> becomes
+                          “in der Kulturfabrik” but “im Kulturzentrum”. The case comes from the words around it
+                          (für → die, wegen → der), and “in dem” contracts to “im” on its own.
+                        </span>
+                      </span>
+                    </label>
+
+                    <div className="mt-2 rounded-md bg-gray-50 dark:bg-gray-900 px-3 py-2 text-xs text-gray-500 dark:text-gray-400">
+                      {!articleState ? 'Checking Apple Intelligence…'
+                        : articleState.ok ? (
+                          <>
+                            <span className="text-emerald-600 dark:text-emerald-400 font-medium">Ready.</span>{' '}
+                            The gender is worked out by Apple’s on-device model — nothing leaves your Mac, and each
+                            venue is only ever asked about once.
+                          </>
+                        ) : articleState.status === 'disabled' ? (
+                          <>
+                            <span className="text-amber-600 dark:text-amber-400 font-medium">Apple Intelligence is switched off.</span>{' '}
+                            Turn it on in <span className="font-medium">System Settings → Apple Intelligence &amp; Siri</span>, then
+                            reopen this panel. Until then <span className="font-mono">{'{{article}}'}</span> is left out of drafts
+                            and flagged as missing.
+                          </>
+                        ) : articleState.status === 'downloading' ? (
+                          <>The on-device model is still downloading. This works once macOS has finished.</>
+                        ) : articleState.status === 'ineligible' || articleState.status === 'unsupported' ? (
+                          <>This Mac can’t run Apple’s on-device model — it needs Apple Silicon and macOS 26 or newer.
+                            Drafts still work; <span className="font-mono">{'{{article}}'}</span> is left out and flagged.</>
+                        ) : (
+                          <>{articleState.error || 'The language helper is unavailable.'}</>
+                        )}
+                    </div>
                   </div>
 
                   <div className="pt-4 border-t border-gray-100 dark:border-gray-700">
@@ -721,26 +811,89 @@ export default function SettingsPanel({ config, rows = [], onOpenImport, onOpenT
                     </button>
                     {mailTest && <p className="text-xs text-gray-500 dark:text-gray-400 flex-1 min-w-0">{mailTest}</p>}
                   </div>
+
+                  <div className="pt-4 border-t border-gray-100 dark:border-gray-700 space-y-4">
+                    <div>
+                      <p className={lbl}>Keeping “Last emailed” up to date</p>
+                      <div className="space-y-1.5">
+                        {[
+                          { v: 'onSend', label: 'Stamp today’s date when I draft or send', hint: 'No server access needed. Misses anything you sent from Mail itself.' },
+                          { v: 'imap', label: 'Read the real date from my Sent mailbox', hint: 'Catches everything, however you sent it. Needs the IMAP details above.' },
+                          { v: 'off', label: 'Leave it to me', hint: 'The column is only ever changed by hand.' },
+                        ].map(o => (
+                          <label key={o.v} className="flex items-start gap-2 cursor-pointer">
+                            <input
+                              type="radio" name="syncLastEmailed" value={o.v}
+                              checked={(sync.lastEmailed || 'onSend') === o.v}
+                              onChange={() => setSync({ lastEmailed: o.v })}
+                              className="mt-0.5 border-gray-300 dark:border-gray-600 text-indigo-600 focus:ring-indigo-500"
+                            />
+                            <span className="text-xs text-gray-600 dark:text-gray-300">
+                              {o.label}
+                              <span className="block text-gray-400 dark:text-gray-500">{o.hint}</span>
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <p className={lbl}>Reply status</p>
+                      <label className="flex items-start gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={sync.replies === 'imap'}
+                          onChange={e => setSync({ replies: e.target.checked ? 'imap' : 'off' })}
+                          className="mt-0.5 rounded border-gray-300 dark:border-gray-600 text-indigo-600 focus:ring-indigo-500"
+                        />
+                        <span className="text-xs text-gray-600 dark:text-gray-300">
+                          Read the last reply date from my inbox
+                          <span className="block text-gray-400 dark:text-gray-500">
+                            Fills the Reply status column, telling a real answer apart from an
+                            out-of-office auto-responder. Only possible over IMAP.
+                          </span>
+                        </span>
+                      </label>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-3 items-end">
+                      <div>
+                        <label className={lbl}>Look back</label>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="number" min="1" max="240"
+                            className={`${input} w-20`}
+                            value={sync.months ?? 24}
+                            onChange={e => setSync({ months: Number(e.target.value) })}
+                          />
+                          <span className="text-xs text-gray-400 dark:text-gray-500">months</span>
+                        </div>
+                      </div>
+                      <label className="col-span-2 flex items-start gap-2 cursor-pointer pb-1">
+                        <input
+                          type="checkbox"
+                          checked={!!sync.onOpen}
+                          onChange={e => setSync({ onOpen: e.target.checked })}
+                          className="mt-0.5 rounded border-gray-300 dark:border-gray-600 text-indigo-600 focus:ring-indigo-500"
+                        />
+                        <span className="text-xs text-gray-600 dark:text-gray-300">
+                          Check once when the app opens
+                          <span className="block text-gray-400 dark:text-gray-500">
+                            Otherwise only when you press ↻.
+                          </span>
+                        </span>
+                      </label>
+                    </div>
+
+                    <p className="text-xs text-gray-400 dark:text-gray-500">
+                      A sync never writes to your CSV. It stages the dates as pending edits, exactly like
+                      typing them in — you review them and press Save. Dates already in the CSV are only
+                      ever moved forward, never back.
+                    </p>
+                  </div>
                 </div>
               )}
 
-              {section === 'data' && (
-                <div>
-                  <div className="flex gap-2">
-                    <button type="button" onClick={handleExport} disabled={rows.length === 0} className={`${outlineBtn} flex-1`}>
-                      Export CSV
-                    </button>
-                    <button type="button" onClick={() => onOpenImport?.()} className={`${outlineBtn} flex-1`}>
-                      Import CSV…
-                    </button>
-                  </div>
-                  <p className="mt-2 text-xs text-gray-400 dark:text-gray-500">
-                    Export writes a copy wherever you point it. Import opens a guided wizard — replace the table
-                    or add to it, and match your file's columns to the app's. Changes stay in the app until you
-                    press Save.
-                  </p>
-                </div>
-              )}
             </div>
           </div>
 
