@@ -318,3 +318,19 @@ Needs a real account — see `VERIFY-MAIL.md`.
 - [ ] Settings ▸ General has *Check automatically when the app starts*.
 - [ ] With it on and no newer release: launching says nothing at all.
 - [ ] With it on and offline: launching says nothing at all.
+
+## Reply-health colours (0.4.1)
+
+- [ ] A venue emailed at least once with no reply → **red** row.
+- [ ] Set its Status to `auto-reply: <today>` → row turns **orange**, dot orange,
+      Last Reply badge orange.
+- [ ] Change it to `reply: <today>` → row turns **yellow**, badge yellow.
+- [ ] Set `Last played` to a future date → row turns **green** regardless of the
+      reply status.
+- [ ] Clear `Total emails` on an unanswered venue → tint disappears.
+- [ ] Open each of those in the venue detail view: the header shows a matching
+      coloured badge next to the ✉ counters, reading *Never replied* /
+      *Auto-reply only* / *Replied* / *Gig booked* / *Not contacted*, with the
+      explanation on hover.
+- [ ] A row with unsaved edits shows amber instead, and returns to its health
+      colour after Save.

@@ -126,11 +126,11 @@ export const ACTION_STATUSES = new Set([STATUS.SEND, STATUS.FOLLOW_UP_DUE, STATU
 // Reply-health categories (see replyHealth() in replyStatus.js). Order = sort rank,
 // from best news (confirmed gig) to worst (no response).
 export const HEALTH_OPTIONS = [
-  { key: 'gig', label: 'Confirmed gig (green)' },
+  { key: 'gig', label: 'Gig booked' },
   { key: 'reply', label: 'Replied' },
   { key: 'none', label: 'Not contacted yet' },
-  { key: 'auto-reply', label: 'Auto-reply only (yellow)' },
-  { key: 'silent', label: 'No response (red)' },
+  { key: 'auto-reply', label: 'Auto-reply only' },
+  { key: 'silent', label: 'Never replied' },
 ]
 export const HEALTH_RANK = Object.fromEntries(HEALTH_OPTIONS.map((o, i) => [o.key, i]))
 

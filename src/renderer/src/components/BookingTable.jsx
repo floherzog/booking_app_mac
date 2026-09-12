@@ -16,34 +16,23 @@ import { lastEmailedColor, followUpColor, lastPlayedColor, lastReplyColor } from
 import { ADVANCED_COLUMNS, STATUS_META, HEALTH_RANK, getMissingFields, getMissingSeverity } from '@core/constants'
 import { parseDate, formatDateDDMMYY, toInputValue, fromInputValue } from '@core/parseDate'
 import { parseReplyStatus, composeReplyStatus, replyHealth } from '@core/replyStatus'
+import { healthMeta, HEALTH_META } from '../lib/health'
 import { prepareDraft } from '../lib/drafts'
 
-// Subtle row tint per reply-health category. Categories without a tint (replied,
-// not-yet-contacted) read neutral. Green (confirmed gig) wins over the rest.
-const HEALTH_CLASS = {
-  gig: 'bg-green-50 dark:bg-green-900/15',
-  'auto-reply': 'bg-yellow-50 dark:bg-yellow-900/15',
-  silent: 'bg-red-50 dark:bg-red-900/15',
-}
-const HEALTH_DOT = {
-  gig: 'bg-green-400',
-  reply: 'bg-gray-300 dark:bg-gray-600',
-  none: 'bg-gray-300 dark:bg-gray-600',
-  'auto-reply': 'bg-yellow-400',
-  silent: 'bg-red-400',
-}
 
 // The Last Reply kind reads as a recorded fact (a tinted badge with an inbound
 // icon), deliberately unlike the additive +pills of the Outreach action column.
+// Same palette as the row tint (see lib/health.js) so the badge and the colour of
+// the row it sits in never tell different stories.
 const REPLY_BADGE = {
-  reply: 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300',
-  'auto-reply': 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300',
+  reply: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300',
+  'auto-reply': 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300',
   none: 'border border-dashed border-gray-300 text-gray-400 dark:border-gray-600 dark:text-gray-500',
 }
 const REPLY_LABEL = { reply: 'replied', 'auto-reply': 'auto-reply', none: 'no reply' }
 const REPLY_ICON = { reply: '↩', 'auto-reply': '⟳', none: '' }
 function rowHighlight(row) {
-  return HEALTH_CLASS[replyHealth(row)] || ''
+  return healthMeta(row).row
 }
 
 const helper = createColumnHelper()
@@ -368,7 +357,7 @@ function buildExtraColumn(field) {
         const h = replyHealth(i.row.original)
         return (
           <span className="inline-flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300">
-            <span className={`w-2.5 h-2.5 rounded-full ${HEALTH_DOT[h] || 'bg-gray-300 dark:bg-gray-600'}`} />
+            <span className={`w-2.5 h-2.5 rounded-full ${(HEALTH_META[h] || HEALTH_META.none).dot}`} />
             {h}
           </span>
         )

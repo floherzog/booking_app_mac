@@ -7,6 +7,7 @@ import StatusBadge from './StatusBadge'
 import RelDate from './RelDate'
 import DraftVenueButton from './DraftVenueButton'
 import { lastEmailedColor, followUpColor, lastPlayedColor } from '@core/dateColors'
+import { healthMeta } from '../lib/health'
 
 function MiniMap({ city, country, status, onOpenMap }) {
   const [pos, setPos] = useState(null)
@@ -316,6 +317,9 @@ export default function VenueDetailModal({ rowIndex, row, edits, onEdit, onClose
   const rowEdits = edits[rowIndex] || {}
   const effective = { ...row, ...rowEdits }
   const missing = getMissingFields(effective)
+  // The row tint in the table is this colour; here it gets a name, because a
+  // colour on its own is only meaningful to whoever wrote the legend.
+  const health = healthMeta(effective)
   const totalEmails = Number(row['Total emails']) || 0
   const recentEmails = Number(row['Recent emails']) || 0
 
@@ -345,6 +349,13 @@ export default function VenueDetailModal({ rowIndex, row, edits, onEdit, onClose
                 title={`${recentEmails} email${recentEmails !== 1 ? 's' : ''} sent since last reply`}
               >
                 {recentEmails} <span className="text-[1.5em] leading-none relative -top-[0.09em]">✉</span> since reply
+              </span>
+              <span
+                className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs font-medium ${health.badge}`}
+                title={health.hint}
+              >
+                <span className={`w-2 h-2 rounded-full ${health.dot}`} aria-hidden />
+                {health.label}
               </span>
               {duplicatePartners.map(partner => (
                 <span key={partner._idx} className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300">

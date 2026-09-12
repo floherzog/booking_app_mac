@@ -189,6 +189,35 @@ dates in the table. They change how dates are *tinted*, never who gets picked.
 The ⓘ **Logic** modal draws the actual decision tree with your current numbers
 in it, so it can never fall out of step with the code.
 
+## What the row colours mean
+
+The **status badge** says what to do next. The **row tint** says something
+different and independent: how this venue has responded so far. Worst to best,
+red → orange → yellow → green.
+
+| Tint | Means | When |
+| --- | --- | --- |
+| 🔴 red | **Never replied** | Emailed at least once, no answer of any kind |
+| 🟠 orange | **Auto-reply only** | Only an out-of-office or autoresponder came back |
+| 🟡 yellow | **Replied** | Someone actually wrote back |
+| 🟢 green | **Gig booked** | `Last played` is a future date — beats everything else |
+| — none | **Not contacted** | Nothing has gone out yet |
+
+Two things worth knowing:
+
+- **It is not a measure of time or volume.** One unanswered email is already red;
+  there is no "overdue" threshold. It keys off `Total emails`, not `Last emailed`.
+- **A booked gig overrides everything**, so a date agreed by phone does not sit
+  there looking ignored.
+
+The same colours appear as the dot in the Reply column, as the badge in the venue
+detail header (with the wording above, so the colour is never a guess), and in
+"Reply health" in the advanced filter and sort.
+
+A **red left border** is a different signal — that is the *Follow Up* status. And
+a row with unsaved edits is tinted amber, which replaces the health tint until you
+press Save.
+
 ## Email templates
 
 **Settings → Templates.** One template per **band × language**.
