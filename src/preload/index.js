@@ -47,7 +47,8 @@ const api = {
   fetchVideoThumb: url => ipcRenderer.invoke('templates:fetchVideoThumb', url),
 
   // Apple Mail drafts
-  testMailConnection: () => ipcRenderer.invoke('mail:testConnection'),
+  testMailConnection: accountId => ipcRenderer.invoke('mail:testConnection', accountId),
+  verifySmtp: accountId => ipcRenderer.invoke('mail:verifySmtp', accountId),
   appendDraft: args => ipcRenderer.invoke('mail:appendDraft', args),
   articleAvailability: () => ipcRenderer.invoke('articles:availability'),
   resolveGenders: names => ipcRenderer.invoke('articles:resolve', names),

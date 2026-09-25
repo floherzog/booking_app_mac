@@ -1,6 +1,6 @@
 import { useState, useRef, useMemo, useEffect } from 'react'
 import { useEditor, EditorContent } from '@tiptap/react'
-import { EMAIL_EXTENSIONS, renderEmailHtml, EMAIL_BODY_STYLE } from '@core/emailHtml'
+import { EMAIL_EXTENSIONS, renderEmailHtml, EMAIL_BODY_STYLE, appAssetSrc } from '@core/emailHtml'
 import { PLACEHOLDERS, substituteTemplate, languageForRow, contactOptionsFor } from '@core/templates'
 import { uploadAsset, fetchVideoThumb } from '../lib/templates'
 import { buildThumbFile } from '../lib/videoThumb'
@@ -112,7 +112,11 @@ export default function TemplateEditor({ template, bandOptions, languages, setti
     if (!editor || !previewRow) return null
     const opts = contactOptionsFor(previewRow, settings)
     const substituted = substituteTemplate({ subject, bodyJSON: editor.getJSON() }, previewRow, opts)
-    const { bodyHtml } = renderEmailHtml(substituted.bodyJSON)
+    // Same renderer the email uses, with one substitution: inline assets keep the
+    // app's own URL instead of becoming cid: references, which a browser cannot
+    // resolve. Without this every image in the preview — inline pictures and
+    // video thumbnails alike — renders as a broken image.
+    const { bodyHtml } = renderEmailHtml(substituted.bodyJSON, { assetSrc: appAssetSrc })
     return { ...substituted, bodyHtml }
     // editor.getJSON() is not reactive on its own — docVersion is what makes
     // this recompute as you type.

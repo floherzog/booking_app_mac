@@ -46,7 +46,9 @@ const ICLOUD_MAILBOXES = [
 ]
 
 const SETTINGS = {
-  mail: { host: 'imap.example.com', port: 993, user: 'me@example.com', fromAddress: 'me@example.com', fromName: 'Flo', draftsMailbox: '' },
+  // These take one mail account now, not the whole settings object.
+  id: 'default', host: 'imap.example.com', port: 993, user: 'me@example.com',
+  fromAddress: 'me@example.com', fromName: 'Flo', draftsMailbox: '',
 }
 
 describe('resolveDraftsMailbox', () => {
@@ -96,7 +98,7 @@ describe('testConnectionWith', () => {
   })
 
   it('keeps a mailbox the user already chose', async () => {
-    const r = await testConnectionWith(fakeClient(ICLOUD_MAILBOXES), { mail: { draftsMailbox: 'INBOX/Drafts' } })
+    const r = await testConnectionWith(fakeClient(ICLOUD_MAILBOXES), { draftsMailbox: 'INBOX/Drafts' })
     expect(r.suggestion).toBe('INBOX/Drafts')
   })
 })
@@ -173,7 +175,7 @@ describe('appendDraftWith', () => {
 
   it('falls back to the IMAP user when no from address is set', async () => {
     const client = fakeClient(ICLOUD_MAILBOXES)
-    await appendDraftWith(client, { mail: { user: 'me@example.com' } }, payload)
+    await appendDraftWith(client, { id: 'default', user: 'me@example.com' }, payload)
     expect(client.calls[0].content.toString('utf8')).toContain('From: me@example.com')
   })
 

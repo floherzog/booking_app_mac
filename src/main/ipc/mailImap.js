@@ -2,6 +2,7 @@ import { ipcMain } from 'electron'
 import { ImapFlow } from 'imapflow'
 import { readSettings } from '../settingsStore.js'
 import { getSecret } from '../secrets.js'
+import { normalizeAccounts, accountById, secretKeyFor, accountLabel } from '../../core/mailAccounts.js'
 import { assetPath } from './templates.js'
 import { buildDraftMime } from '../mime.js'
 import { htmlToText } from '../../core/htmlText.js'
@@ -22,6 +23,15 @@ export function friendlyMailError(e) {
   if (/ENOTFOUND|EAI_AGAIN/i.test(msg)) return 'Could not find that mail server — check the host name in Settings → Mail.'
   if (/ECONNREFUSED/i.test(msg)) return 'The mail server refused the connection — check the host and port in Settings → Mail.'
   if (/ETIMEDOUT|timeout/i.test(msg)) return 'The mail server did not respond. Check your connection and the host/port in Settings → Mail.'
+  // nodemailer/imapflow say this when the socket opens but no banner arrives.
+  // The server is almost always waiting for a TLS handshake the client never
+  // started — i.e. the port and its encryption do not match.
+  if (/greeting never received|Greeting not received/i.test(msg)) {
+    return 'Connected, but the mail server never said hello. That almost always means the port and its encryption do not match: try 587 (STARTTLS) or 465 (TLS) for sending, and 993 for IMAP. Use "Test sending" in Settings → Mail settings to check without sending a real email.'
+  }
+  if (/wrong version number|SSL routines|packet length too long/i.test(msg)) {
+    return 'The mail server answered in plain text where encryption was expected (or the other way round). Try the other sending port — 587 for STARTTLS, 465 for TLS.'
+  }
   if (/certificate/i.test(msg)) return `The mail server's TLS certificate could not be verified: ${msg}`
   return msg
 }
@@ -44,16 +54,22 @@ function mailboxSummary(list) {
 // Split out so the tests can drive them with a recording double; the handlers
 // below supply the real connection.
 
-export async function testConnectionWith(client, settings) {
+export async function testConnectionWith(client, account) {
   const mailboxes = mailboxSummary(await client.list())
-  return { mailboxes, suggestion: resolveDraftsMailbox(mailboxes, settings.mail?.draftsMailbox) }
+  return { mailboxes, suggestion: resolveDraftsMailbox(mailboxes, account?.draftsMailbox) }
+}
+
+// The account a payload is addressed from. Every mail operation carries an
+// accountId now; anything without one means the default account, which is what
+// a single-mailbox setup has always used.
+export function accountFor(accountId, settings = readSettings()) {
+  return accountById(normalizeAccounts(settings.mail), accountId)
 }
 
 // The RFC822 bytes for one venue's mail. Shared by the draft path and the SMTP
 // send path, so a sent message is byte-for-byte the message the draft would
 // have been.
-export async function buildOutgoingMime(settings, { to, subject, html, cids = [] }, resolveAsset = assetPath) {
-  const mail = settings.mail || {}
+export async function buildOutgoingMime(account, { to, subject, html, cids = [] }, resolveAsset = assetPath) {
 
   // cids arrive as [{ cid, assetId }] from renderEmailHtml; main is the only
   // side that knows where the asset files actually live.
@@ -64,7 +80,7 @@ export async function buildOutgoingMime(settings, { to, subject, html, cids = []
   }
 
   return buildDraftMime({
-    from: { name: mail.fromName, address: mail.fromAddress || mail.user },
+    from: { name: account.fromName, address: account.fromAddress || account.user },
     to,
     subject,
     html,
@@ -73,11 +89,10 @@ export async function buildOutgoingMime(settings, { to, subject, html, cids = []
   })
 }
 
-export async function appendDraftWith(client, settings, payload, resolveAsset = assetPath) {
-  const mail = settings.mail || {}
-  const mime = await buildOutgoingMime(settings, payload, resolveAsset)
+export async function appendDraftWith(client, account, payload, resolveAsset = assetPath) {
+  const mime = await buildOutgoingMime(account, payload, resolveAsset)
 
-  const mailbox = resolveDraftsMailbox(mailboxSummary(await client.list()), mail.draftsMailbox)
+  const mailbox = resolveDraftsMailbox(mailboxSummary(await client.list()), account.draftsMailbox)
 
   // \Draft is essential: without it Mail.app files the message as received mail
   // rather than an editable draft. \Seen stops it counting as unread.
@@ -87,20 +102,24 @@ export async function appendDraftWith(client, settings, payload, resolveAsset = 
 
 // A connection per call takes 1–2s. Pooling is a later optimization; correctness
 // and never leaving a socket open matter more here.
-export async function withImapClient(fn) {
-  const settings = readSettings()
-  const { host, port, user } = settings.mail || {}
-  if (!host) throw new Error('No IMAP server configured. Fill in Settings → Mail.')
-  if (!user) throw new Error('No IMAP username configured. Fill in Settings → Mail.')
+export async function withImapClient(accountOrFn, maybeFn) {
+  // withImapClient(fn) still means the default account, which is every call from
+  // a single-mailbox setup.
+  const fn = typeof accountOrFn === 'function' ? accountOrFn : maybeFn
+  const account = typeof accountOrFn === 'function' ? accountFor(null) : accountOrFn
 
-  const pass = getSecret('imapPassword')
-  if (!pass) throw new Error('No mail password stored. Add one in Settings → Mail.')
+  const where = `Settings → Mail settings${account?.label ? ` (${account.label})` : ''}`
+  if (!account?.host) throw new Error(`No IMAP server configured. Fill in ${where}.`)
+  if (!account?.user) throw new Error(`No IMAP username configured. Fill in ${where}.`)
+
+  const pass = getSecret(secretKeyFor(account.id))
+  if (!pass) throw new Error(`No mail password stored for ${accountLabel(account)}. Add one in ${where}.`)
 
   const client = new ImapFlow({
-    host,
-    port: Number(port) || 993,
+    host: account.host,
+    port: Number(account.port) || 993,
     secure: true,
-    auth: { user, pass },
+    auth: { user: account.user, pass },
     logger: false,
     // Fail fast rather than hanging the UI on a wrong host.
     socketTimeout: 30000,
@@ -108,7 +127,7 @@ export async function withImapClient(fn) {
 
   try {
     await client.connect()
-    return await fn(client, settings)
+    return await fn(client, account)
   } catch (e) {
     throw new Error(friendlyMailError(e))
   } finally {
@@ -118,7 +137,8 @@ export async function withImapClient(fn) {
 
 // The operation itself, callable from the scheduler as well as over IPC.
 export function appendDraftNow(payload) {
-  return withImapClient((client, settings) => appendDraftWith(client, settings, payload))
+  return withImapClient(accountFor(payload?.accountId), (client, account) =>
+    appendDraftWith(client, account, payload))
 }
 
 // Filing a sent message in Sent is a courtesy, never a reason to report the
@@ -131,9 +151,9 @@ export function resolveSentMailbox(mailboxes, configured) {
   return named ? named.path : 'Sent Messages'
 }
 
-export async function appendToSent(mime) {
-  return withImapClient(async (client, settings) => {
-    const mailbox = resolveSentMailbox(mailboxSummary(await client.list()), settings.mail?.sentMailbox)
+export async function appendToSent(mime, accountId) {
+  return withImapClient(accountFor(accountId), async (client, account) => {
+    const mailbox = resolveSentMailbox(mailboxSummary(await client.list()), account.sentMailbox)
     const res = await client.append(mailbox, mime, ['\\Seen'])
     return { mailbox, uid: res?.uid ?? null }
   })
@@ -141,7 +161,8 @@ export async function appendToSent(mime) {
 
 export function registerMailImapIpc() {
   // → { mailboxes: [{ path, specialUse }], suggestion }
-  ipcMain.handle('mail:testConnection', () => withImapClient(testConnectionWith))
+  ipcMain.handle('mail:testConnection', (_e, accountId) =>
+    withImapClient(accountFor(accountId), testConnectionWith))
 
   // { to, subject, html, cids } → { mailbox, uid }
   ipcMain.handle('mail:appendDraft', (_e, payload) =>

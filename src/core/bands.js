@@ -1,6 +1,8 @@
-// A managed band is `{ name, tourDates, bookFiller }`. `tourDates` is free text
-// (a date range or anything else). Older configs stored bands as bare strings,
-// or as `{ tourStart, tourEnd }` — helpers tolerate all shapes.
+// A managed band is `{ name, tourDates, bookFiller, mailAccountId }`. `tourDates`
+// is free text (a date range or anything else). Older configs stored bands as
+// bare strings, or as `{ tourStart, tourEnd }` — helpers tolerate all shapes.
+// `mailAccountId` is empty for a band that sends from the default account, which
+// is every band until a second mail account exists.
 export function bandName(b) {
   return typeof b === 'string' ? b : (b?.name || '')
 }
@@ -8,13 +10,18 @@ export function bandName(b) {
 // Migrate/normalize a stored band list (strings and/or objects) to full objects.
 export function normalizeBands(bands) {
   return (bands || []).map(b => {
-    if (typeof b === 'string') return { name: b, tourDates: '', bookFiller: false }
+    if (typeof b === 'string') return { name: b, tourDates: '', bookFiller: false, mailAccountId: '' }
     // Migrate the earlier { tourStart, tourEnd } shape into free-text tourDates.
     let tourDates = b?.tourDates || ''
     if (!tourDates && (b?.tourStart || b?.tourEnd)) {
       tourDates = [b.tourStart, b.tourEnd].filter(Boolean).join(' – ')
     }
-    return { name: b?.name || '', tourDates, bookFiller: !!b?.bookFiller }
+    return {
+      name: b?.name || '',
+      tourDates,
+      bookFiller: !!b?.bookFiller,
+      mailAccountId: String(b?.mailAccountId || ''),
+    }
   })
 }
 

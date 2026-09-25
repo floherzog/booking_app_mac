@@ -2,6 +2,11 @@ import { useState, useEffect } from 'react'
 import { getStoredTheme, setTheme } from '../lib/theme'
 import { exportCsv } from '../lib/csvFile'
 import { validateRules } from '@core/rules'
+import { normalizeBands } from '@core/bands'
+import {
+  normalizeAccounts, accountLabel, nextAccountId, secretKeyFor,
+  defaultSmtpHost, ACCOUNT_DEFAULTS,
+} from '@core/mailAccounts'
 import LanguagesEditor from './LanguagesEditor'
 
 const THEMES = [
@@ -36,12 +41,12 @@ export default function SettingsPanel({ config, rows = [], onOpenImport, onOpenT
   const [updateState, setUpdateState] = useState(null) // { checking } | result
   const [githubToken, setGithubToken] = useState('')
   const [hasGithubToken, setHasGithubToken] = useState(false)
-  const [imapPassword, setImapPassword] = useState('')
-  const [hasImapPassword, setHasImapPassword] = useState(false)
-  // Populated by Test connection, so the Drafts picker only ever offers real mailboxes.
-  const [mailboxes, setMailboxes] = useState([])
-  const [mailTest, setMailTest] = useState('')
-  const [testing, setTesting] = useState(false)
+  // Typed-but-unsaved passwords, keyed by account id; they go to the keychain on
+  // Save (or on a test), never into the settings file.
+  const [accountPasswords, setAccountPasswords] = useState({})
+  const [hasPassword, setHasPassword] = useState({})
+  const [openAccount, setOpenAccount] = useState(null)
+  const [accountTests, setAccountTests] = useState({})
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const [savedAt, setSavedAt] = useState(0)
@@ -54,21 +59,28 @@ export default function SettingsPanel({ config, rows = [], onOpenImport, onOpenT
     return () => clearTimeout(t)
   }, [savedAt])
 
-  const bands = form.bands || []
+  // Normalised so every band object has the same keys — bare strings and the
+  // pre-accounts shape both appear in older settings files.
+  const bands = normalizeBands(form.bands)
   const venueTypes = form.venueTypes || []
   const templateOpts = form.templates || {}
   const storage = form.storage || {}
   const mail = form.mail || {}
   const sync = mail.sync || {}
+  const accounts = normalizeAccounts(mail)
   const ruleErrors = validateRules(form.rules)
   // Cheap and good enough: the form is a few kB of plain JSON, and this only
   // drives the footer label.
   const dirty = JSON.stringify(form) !== JSON.stringify(config)
-    || !!githubToken.trim() || !!imapPassword.trim()
+    || !!githubToken.trim() || Object.values(accountPasswords).some(v => v?.trim())
 
   useEffect(() => {
     window.bookingApi.hasSecret('githubToken').then(setHasGithubToken).catch(() => {})
-    window.bookingApi.hasSecret('imapPassword').then(setHasImapPassword).catch(() => {})
+    normalizeAccounts(config?.mail).forEach(a => {
+      window.bookingApi.hasSecret(secretKeyFor(a.id))
+        .then(has => setHasPassword(p => ({ ...p, [a.id]: has })))
+        .catch(() => {})
+    })
     window.bookingApi.getAppVersion().then(setVersion).catch(() => {})
   }, [])
 
@@ -97,14 +109,14 @@ export default function SettingsPanel({ config, rows = [], onOpenImport, onOpenT
     setError('')
     try {
       if (githubToken.trim()) await window.bookingApi.setSecret('githubToken', githubToken.trim())
-      if (imapPassword.trim()) await window.bookingApi.setSecret('imapPassword', imapPassword.trim())
+      await savePasswords()
       const saved = await onSave(form)
       // Saving deliberately leaves the panel open — settings are usually
       // adjusted in batches. Adopt whatever main actually stored so the form
       // stops reading as dirty.
       if (saved) setForm(saved)
       if (githubToken.trim()) { setGithubToken(''); setHasGithubToken(true) }
-      if (imapPassword.trim()) { setImapPassword(''); setHasImapPassword(true) }
+
       setSavedAt(Date.now())
     } catch (err) {
       setError(err.message)
@@ -113,8 +125,56 @@ export default function SettingsPanel({ config, rows = [], onOpenImport, onOpenT
     }
   }
 
-  function setMail(patch) {
-    setForm(f => ({ ...f, mail: { ...f.mail, ...patch } }))
+  // One account's fields. Accounts are normalised on read, so this writes the
+  // full list back rather than patching a possibly-absent array.
+  function setAccount(id, patch) {
+    setForm(f => ({
+      ...f,
+      mail: {
+        ...f.mail,
+        accounts: normalizeAccounts(f.mail).map(a => (a.id === id ? { ...a, ...patch } : a)),
+      },
+    }))
+  }
+
+  function addAccount() {
+    const current = normalizeAccounts(form.mail)
+    const id = nextAccountId(current)
+    setForm(f => ({
+      ...f,
+      mail: { ...f.mail, accounts: [...normalizeAccounts(f.mail), { ...ACCOUNT_DEFAULTS, id, host: '' }] },
+    }))
+    setOpenAccount(id)
+  }
+
+  // Removing an account also unassigns the bands pointing at it, so no band is
+  // left naming a mailbox that no longer exists.
+  async function removeAccount(id) {
+    setForm(f => ({
+      ...f,
+      mail: { ...f.mail, accounts: normalizeAccounts(f.mail).filter(a => a.id !== id) },
+      bands: normalizeBands(f.bands).map(b => (b.mailAccountId === id ? { ...b, mailAccountId: '' } : b)),
+    }))
+    setAccountPasswords(p => { const n = { ...p }; delete n[id]; return n })
+    try { await window.bookingApi.deleteSecret(secretKeyFor(id)) } catch { /* nothing stored */ }
+    setHasPassword(p => ({ ...p, [id]: false }))
+    if (openAccount === id) setOpenAccount(null)
+  }
+
+  function bandsUsing(id) {
+    // The first account is also what every unassigned band uses.
+    const isDefault = accounts[0]?.id === id
+    return bands.filter(b => b.mailAccountId === id || (isDefault && !b.mailAccountId)).map(b => b.name).filter(Boolean)
+  }
+
+  // Passwords go to the keychain, never into settings.json.
+  async function savePasswords() {
+    for (const [id, value] of Object.entries(accountPasswords)) {
+      if (!value?.trim()) continue
+      await window.bookingApi.setSecret(secretKeyFor(id), value.trim())
+      setHasPassword(p => ({ ...p, [id]: true }))
+    }
+    setAccountPasswords({})
   }
 
   // Ask the on-device model helper what state it is in, but only when the pane
@@ -132,34 +192,36 @@ export default function SettingsPanel({ config, rows = [], onOpenImport, onOpenT
     setForm(f => ({ ...f, mail: { ...f.mail, sync: { ...f.mail?.sync, ...patch } } }))
   }
 
-  // Test connection has to run against what is on screen, so the password is
-  // written to the keychain and the settings persisted before we connect.
-  async function testMail() {
-    setTesting(true)
-    setMailTest('')
+  // A test has to run against what is on screen, so the password is written to
+  // the keychain and the settings persisted before anything connects.
+  async function testAccount(id, kind) {
+    setAccountTests(t => ({ ...t, [id]: { busy: kind } }))
     try {
-      if (imapPassword.trim()) {
-        await window.bookingApi.setSecret('imapPassword', imapPassword.trim())
-        setHasImapPassword(true)
-        setImapPassword('')
-      }
+      await savePasswords()
       // Persist without the band-propagation prompts a full Save runs.
       await onPersist(form)
-      const { mailboxes: boxes, suggestion } = await window.bookingApi.testMailConnection()
-      setMailboxes(boxes)
-      if (!form.mail?.draftsMailbox && suggestion) setMail({ draftsMailbox: suggestion })
-      setMailTest(`Connected — ${boxes.length} mailboxes. Drafts: ${form.mail?.draftsMailbox || suggestion}`)
-    } catch (e) {
-      setMailTest(e.message)
-    } finally {
-      setTesting(false)
-    }
-  }
 
-  async function forgetImapPassword() {
-    await window.bookingApi.deleteSecret('imapPassword')
-    setHasImapPassword(false)
-    setImapPassword('')
+      if (kind === 'imap') {
+        const { mailboxes: boxes, suggestion } = await window.bookingApi.testMailConnection(id)
+        const account = normalizeAccounts(form.mail).find(a => a.id === id)
+        if (!account?.draftsMailbox && suggestion) setAccount(id, { draftsMailbox: suggestion })
+        setAccountTests(t => ({
+          ...t,
+          [id]: { ok: true, message: `Connected — ${boxes.length} mailboxes. Drafts: ${account?.draftsMailbox || suggestion}` },
+        }))
+        return
+      }
+
+      const r = await window.bookingApi.verifySmtp(id)
+      setAccountTests(t => ({
+        ...t,
+        [id]: r.ok
+          ? { ok: true, message: `Sending works — ${r.host}:${r.port} over ${r.encryption}${r.derived ? ' (server worked out from the IMAP host)' : ''}.` }
+          : { ok: false, message: r.error },
+      }))
+    } catch (e) {
+      setAccountTests(t => ({ ...t, [id]: { ok: false, message: e.message } }))
+    }
   }
 
   function setStorage(patch) {
@@ -515,6 +577,22 @@ export default function SettingsPanel({ config, rows = [], onOpenImport, onOpenT
                             onChange={e => updateBand(i, { tourDates: e.target.value })}
                           />
                         </div>
+                        {/* Only worth asking once there is a choice to make. */}
+                        {accounts.length > 1 && (
+                          <div className="flex gap-2 items-center">
+                            <label className="text-xs text-gray-500 dark:text-gray-400 w-14 shrink-0">Sends as</label>
+                            <select
+                              className="flex-1 min-w-0 rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 shadow-sm text-sm focus:border-indigo-500 focus:ring-indigo-500"
+                              value={b.mailAccountId || ''}
+                              onChange={e => updateBand(i, { mailAccountId: e.target.value })}
+                            >
+                              <option value="">{accountLabel(accounts[0])} (default)</option>
+                              {accounts.slice(1).map(a => (
+                                <option key={a.id} value={a.id}>{accountLabel(a)}</option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
                         <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
                           <input
                             type="checkbox"
@@ -705,112 +783,156 @@ export default function SettingsPanel({ config, rows = [], onOpenImport, onOpenT
               {section === 'mail' && (
                 <div className="space-y-4">
                   <p className="text-xs text-gray-400 dark:text-gray-500">
-                    Drafts are placed straight into your Drafts mailbox over IMAP — nothing is ever sent.
-                    iCloud needs an <span className="font-medium">app-specific password</span>, not your
+                    One entry per mailbox you send from. Bands pick one in the <span className="font-medium">Bands</span>
+                    {' '}section; everything else uses the first. Drafts go straight into that account's Drafts mailbox
+                    over IMAP. iCloud needs an <span className="font-medium">app-specific password</span>, not your
                     Apple ID password.{' '}
                     <button type="button" onClick={() => window.bookingApi.openExternal('https://appleid.apple.com')} className="underline hover:text-gray-600 dark:hover:text-gray-300">
                       Create one at appleid.apple.com
                     </button>
                   </p>
 
-                  <div className="grid grid-cols-3 gap-3">
-                    <div className="col-span-2">
-                      <label className={lbl}>IMAP server</label>
-                      <input className={monoInput} value={mail.host || ''} placeholder="imap.mail.me.com"
-                        onChange={e => setMail({ host: e.target.value })} />
-                    </div>
-                    <div>
-                      <label className={lbl}>Port</label>
-                      <input className={monoInput} value={mail.port ?? 993}
-                        onChange={e => setMail({ port: parseInt(e.target.value, 10) || '' })} />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-3">
-                    <div className="col-span-2">
-                      <label className={lbl}>SMTP server (only used when you send)</label>
-                      <input className={monoInput} value={mail.smtpHost || ''} placeholder="smtp.mail.me.com"
-                        onChange={e => setMail({ smtpHost: e.target.value })} />
-                    </div>
-                    <div>
-                      <label className={lbl}>Port</label>
-                      <input className={monoInput} value={mail.smtpPort ?? 587}
-                        onChange={e => setMail({ smtpPort: parseInt(e.target.value, 10) || '' })} />
-                    </div>
-                  </div>
-                  <p className="text-xs text-gray-400 dark:text-gray-500 -mt-1">
-                    Same account and password as above; 587 is STARTTLS, 465 implicit TLS. Sent mail is
-                    also filed in your Sent mailbox.
-                  </p>
-
-                  <div>
-                    <label className={lbl}>Username (your full email address)</label>
-                    <input className={monoInput} value={mail.user || ''} placeholder="you@icloud.com"
-                      onChange={e => setMail({ user: e.target.value })} />
-                  </div>
-
-                  <div>
-                    <label className={lbl}>App-specific password</label>
-                    <input type="password" className={monoInput} value={imapPassword}
-                      onChange={e => setImapPassword(e.target.value)}
-                      placeholder={hasImapPassword ? '•••••••• (stored — type to replace)' : 'abcd-efgh-ijkl-mnop'} />
-                    <div className="mt-1 flex items-center justify-between gap-3">
-                      <p className="text-xs text-gray-400 dark:text-gray-500">Kept in your macOS keychain.</p>
-                      {hasImapPassword && (
-                        <button type="button" onClick={forgetImapPassword} className="shrink-0 text-xs text-gray-400 hover:text-red-600 dark:hover:text-red-400 underline">
-                          Forget password
+                  {accounts.map((acct, i) => {
+                    const open = openAccount === acct.id
+                    const test = accountTests[acct.id] || {}
+                    return (
+                      <div key={acct.id} className="rounded-lg border border-gray-200 dark:border-gray-700">
+                        <button
+                          type="button"
+                          onClick={() => setOpenAccount(open ? null : acct.id)}
+                          className="w-full flex items-center justify-between gap-3 px-3 py-2 text-left"
+                        >
+                          <span className="min-w-0">
+                            <span className="text-sm font-medium text-gray-800 dark:text-gray-100">
+                              {accountLabel(acct)}
+                            </span>
+                            {i === 0 && <span className="ml-2 text-[11px] text-gray-400 dark:text-gray-500">default</span>}
+                            <span className="block text-xs text-gray-400 dark:text-gray-500 truncate">
+                              {acct.user || 'not set up yet'}
+                              {bandsUsing(acct.id).length > 0 && ` · ${bandsUsing(acct.id).join(', ')}`}
+                            </span>
+                          </span>
+                          <span className="text-gray-400 shrink-0">{open ? '▴' : '▾'}</span>
                         </button>
-                      )}
-                    </div>
-                  </div>
 
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className={lbl}>From name</label>
-                      <input className={input} value={mail.fromName || ''} placeholder="Your name"
-                        onChange={e => setMail({ fromName: e.target.value })} />
-                    </div>
-                    <div>
-                      <label className={lbl}>From address</label>
-                      <input className={monoInput} value={mail.fromAddress || ''} placeholder="defaults to the username"
-                        onChange={e => setMail({ fromAddress: e.target.value })} />
-                    </div>
-                  </div>
+                        {open && (
+                          <div className="px-3 pb-3 space-y-3 border-t border-gray-100 dark:border-gray-700 pt-3">
+                            <div className="grid grid-cols-3 gap-3">
+                              <div className="col-span-2">
+                                <label className={lbl}>Name for this account</label>
+                                <input className={input} value={acct.label} placeholder="e.g. Band A mail"
+                                  onChange={e => setAccount(acct.id, { label: e.target.value })} />
+                              </div>
+                            </div>
 
-                  <div>
-                    <label className={lbl}>Drafts mailbox</label>
-                    {mailboxes.length > 0 ? (
-                      <select className={input} value={mail.draftsMailbox || ''} onChange={e => setMail({ draftsMailbox: e.target.value })}>
-                        {mailboxes.map(m => (
-                          <option key={m.path} value={m.path}>
-                            {m.path}{m.specialUse === '\\Drafts' ? '  (Drafts)' : ''}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      <input className={monoInput} value={mail.draftsMailbox || ''} placeholder="found automatically — or type a name"
-                        onChange={e => setMail({ draftsMailbox: e.target.value })} />
-                    )}
-                    <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
-                      Left blank, the app uses whichever mailbox your server marks as Drafts.
-                    </p>
-                  </div>
+                            <div className="grid grid-cols-3 gap-3">
+                              <div className="col-span-2">
+                                <label className={lbl}>IMAP server</label>
+                                <input className={monoInput} value={acct.host} placeholder="imap.mail.me.com"
+                                  onChange={e => setAccount(acct.id, { host: e.target.value })} />
+                              </div>
+                              <div>
+                                <label className={lbl}>Port</label>
+                                <input className={monoInput} value={acct.port}
+                                  onChange={e => setAccount(acct.id, { port: Number(e.target.value) || 993 })} />
+                              </div>
+                            </div>
 
-                  <div>
-                    <label className={lbl}>Sent mailbox</label>
-                    <input className={monoInput} value={mail.sentMailbox || ''} placeholder="found automatically — or type a name"
-                      onChange={e => setMail({ sentMailbox: e.target.value })} />
-                    <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
-                      Where a copy of a sent message is filed. Left blank, the mailbox your server marks as Sent.
-                    </p>
-                  </div>
+                            <div className="grid grid-cols-3 gap-3">
+                              <div className="col-span-2">
+                                <label className={lbl}>SMTP server (sending)</label>
+                                <input className={monoInput} value={acct.smtpHost}
+                                  placeholder={defaultSmtpHost(acct.host) || 'smtp.…'}
+                                  onChange={e => setAccount(acct.id, { smtpHost: e.target.value })} />
+                                <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
+                                  Left blank, it is worked out from the IMAP server above.
+                                </p>
+                              </div>
+                              <div>
+                                <label className={lbl}>Port</label>
+                                <select className={input} value={acct.smtpPort}
+                                  onChange={e => setAccount(acct.id, { smtpPort: Number(e.target.value) })}>
+                                  <option value={587}>587 — STARTTLS</option>
+                                  <option value={465}>465 — TLS</option>
+                                  <option value={25}>25 — plain</option>
+                                </select>
+                              </div>
+                            </div>
 
-                  <div className="flex items-center gap-3">
-                    <button type="button" onClick={testMail} disabled={testing} className={outlineBtn}>
-                      {testing ? 'Connecting…' : 'Test connection'}
-                    </button>
-                    {mailTest && <p className="text-xs text-gray-500 dark:text-gray-400 flex-1 min-w-0">{mailTest}</p>}
-                  </div>
+                            <div className="grid grid-cols-2 gap-3">
+                              <div>
+                                <label className={lbl}>Username</label>
+                                <input className={monoInput} value={acct.user} placeholder="you@icloud.com"
+                                  onChange={e => setAccount(acct.id, { user: e.target.value })} />
+                              </div>
+                              <div>
+                                <label className={lbl}>Password</label>
+                                <input
+                                  type="password" className={input}
+                                  value={accountPasswords[acct.id] || ''}
+                                  placeholder={hasPassword[acct.id] ? '•••••••• stored' : 'app-specific password'}
+                                  onChange={e => setAccountPasswords(p => ({ ...p, [acct.id]: e.target.value }))}
+                                />
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-3">
+                              <div>
+                                <label className={lbl}>From address</label>
+                                <input className={monoInput} value={acct.fromAddress} placeholder="same as username"
+                                  onChange={e => setAccount(acct.id, { fromAddress: e.target.value })} />
+                              </div>
+                              <div>
+                                <label className={lbl}>From name</label>
+                                <input className={input} value={acct.fromName}
+                                  onChange={e => setAccount(acct.id, { fromName: e.target.value })} />
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-3">
+                              <div>
+                                <label className={lbl}>Drafts mailbox</label>
+                                <input className={monoInput} value={acct.draftsMailbox} placeholder="found automatically"
+                                  onChange={e => setAccount(acct.id, { draftsMailbox: e.target.value })} />
+                              </div>
+                              <div>
+                                <label className={lbl}>Sent mailbox</label>
+                                <input className={monoInput} value={acct.sentMailbox} placeholder="found automatically"
+                                  onChange={e => setAccount(acct.id, { sentMailbox: e.target.value })} />
+                              </div>
+                            </div>
+
+                            <div className="flex flex-wrap items-center gap-2">
+                              <button type="button" onClick={() => testAccount(acct.id, 'imap')} disabled={!!test.busy} className={outlineBtn}>
+                                {test.busy === 'imap' ? 'Connecting…' : 'Test receiving (IMAP)'}
+                              </button>
+                              <button type="button" onClick={() => testAccount(acct.id, 'smtp')} disabled={!!test.busy} className={outlineBtn}>
+                                {test.busy === 'smtp' ? 'Checking…' : 'Test sending (SMTP)'}
+                              </button>
+                              {accounts.length > 1 && (
+                                <button
+                                  type="button"
+                                  onClick={() => removeAccount(acct.id)}
+                                  className="ml-auto text-xs text-gray-400 hover:text-red-600 dark:hover:text-red-400 transition-colors"
+                                >
+                                  Remove account
+                                </button>
+                              )}
+                            </div>
+                            {test.message && (
+                              <p className={`text-xs ${test.ok ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                                {test.message}
+                              </p>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+
+                  <button type="button" onClick={addAccount} className={outlineBtn}>
+                    Add another account…
+                  </button>
 
                   <div className="pt-4 border-t border-gray-100 dark:border-gray-700 space-y-4">
                     <div>

@@ -25,7 +25,7 @@ const CORE = join(ROOT, 'src', 'core')
 // one is supposed to stay identical, so any diff there is a genuine surprise.
 const PAIRS = [
   { core: 'replyStatus.js', lib: 'replyStatus.js' },
-  { core: 'bands.js', lib: 'bands.js' },
+  { core: 'bands.js', lib: 'bands.js', expected: 'bands carry mailAccountId — the webapp has no mail accounts' },
   { core: 'parseDate.js', lib: 'parseDate.js', expected: 'ISO-timestamp support added for the draft log' },
   { core: 'importMap.js', lib: 'importMap.js', expected: 'parse helpers moved from fetchCsv.js into csv.js' },
   { core: 'duplicates.js', lib: 'duplicates.js', expected: 'PHP settings.php sync and localStorage removed' },
@@ -40,7 +40,7 @@ const PAIRS = [
 // Mac-only modules with no webapp counterpart — nothing to compare against.
 const MAC_ONLY = [
   'rules.js', 'logicTree.js', 'templates.js', 'emailHtml.js', 'htmlText.js',
-  'videoLink.js', 'venueTypes.js', 'delivery.js', 'mailSync.js', 'germanArticles.js',
+  'videoLink.js', 'venueTypes.js', 'delivery.js', 'mailSync.js', 'germanArticles.js', 'mailAccounts.js',
 ]
 
 // Mechanical differences that carry no meaning: this repo writes explicit .js

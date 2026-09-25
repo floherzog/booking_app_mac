@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { renderEmailHtml, htmlToText } from '@core/emailHtml'
+import { renderEmailHtml, htmlToText, appAssetSrc } from '@core/emailHtml'
 
 function doc(...content) {
   return { type: 'doc', content }
@@ -150,5 +150,34 @@ describe('htmlToText', () => {
   it('decodes the entities generateHTML emits', () => {
     const { html } = renderEmailHtml(doc(para(text('Rock & Roll <live>'))))
     expect(htmlToText(html)).toBe('Rock & Roll <live>')
+  })
+})
+
+describe('renderEmailHtml — asset addressing', () => {
+  const docWithImage = {
+    type: 'doc',
+    content: [{
+      type: 'paragraph',
+      content: [{ type: 'image', attrs: { src: 'booking-asset://abc.png' } }],
+    }],
+  }
+
+  it('uses cid: references by default, for the email', () => {
+    const { bodyHtml, cids } = renderEmailHtml(docWithImage)
+    expect(bodyHtml).toContain('src="cid:asset-abc.png"')
+    expect(cids).toEqual([{ cid: 'asset-abc.png', assetId: 'abc.png' }])
+  })
+
+  it('can keep the app asset URL, for the in-app preview', () => {
+    const { bodyHtml, cids } = renderEmailHtml(docWithImage, { assetSrc: appAssetSrc })
+    expect(bodyHtml).toContain('src="booking-asset://abc.png"')
+    expect(bodyHtml).not.toContain('cid:')
+    // The asset list is still reported, so the caller can attach them if it wants.
+    expect(cids).toEqual([{ cid: 'asset-abc.png', assetId: 'abc.png' }])
+  })
+
+  it('still applies image styling either way', () => {
+    const preview = renderEmailHtml(docWithImage, { assetSrc: appAssetSrc }).bodyHtml
+    expect(preview).toMatch(/<img[^>]*style="/)
   })
 })

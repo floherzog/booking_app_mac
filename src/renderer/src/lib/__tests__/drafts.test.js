@@ -71,8 +71,9 @@ describe('prepareDraft', () => {
     const before = JSON.stringify(ROW)
     const p = prepareDraft(ROW, [DE, EN], LANGUAGES)
     // The payload carries only what an email needs — no CSV fields, and in
-    // particular nothing that could update 'Last emailed'.
-    expect(Object.keys(p.draft).sort()).toEqual(['cids', 'html', 'subject', 'to'])
+    // particular nothing that could update 'Last emailed'. accountId names the
+    // mailbox it goes out from, which main resolves to real credentials.
+    expect(Object.keys(p.draft).sort()).toEqual(['accountId', 'cids', 'html', 'subject', 'to'])
     expect(JSON.stringify(ROW)).toBe(before)
   })
 })
@@ -88,5 +89,39 @@ describe('draftKey / draftedAt', () => {
     expect(draftedAt(settings, ROW)).toBe('2026-09-01T10:00:00.000Z')
     expect(draftedAt({}, ROW)).toBeNull()
     expect(draftedAt(settings, { ...ROW, City: 'Köln' })).toBeNull()
+  })
+})
+
+describe('prepareDraft — which mailbox it sends from', () => {
+  const SETTINGS = {
+    mail: {
+      accounts: [
+        { id: 'default', user: 'main@x.com' },
+        { id: 'account-1', user: 'side@x.com' },
+      ],
+    },
+    bands: [{ name: 'The Band', mailAccountId: 'account-1' }],
+  }
+
+  it('routes a row through its band to that band’s account', () => {
+    const p = prepareDraft(ROW, [DE, EN], LANGUAGES, SETTINGS)
+    expect(p.draft.accountId).toBe('account-1')
+  })
+
+  it('falls back to the default account for an unassigned band', () => {
+    const p = prepareDraft(ROW, [DE, EN], LANGUAGES, { ...SETTINGS, bands: [{ name: 'The Band' }] })
+    expect(p.draft.accountId).toBe('default')
+  })
+
+  it('falls back when the band names an account that has been deleted', () => {
+    const p = prepareDraft(ROW, [DE, EN], LANGUAGES, {
+      ...SETTINGS,
+      bands: [{ name: 'The Band', mailAccountId: 'gone' }],
+    })
+    expect(p.draft.accountId).toBe('default')
+  })
+
+  it('names the default account even with no settings at all', () => {
+    expect(prepareDraft(ROW, [DE, EN], LANGUAGES).draft.accountId).toBe('default')
   })
 })

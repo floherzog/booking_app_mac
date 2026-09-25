@@ -1,6 +1,7 @@
 import { resolveTemplate, substituteTemplate, contactOptionsFor } from '@core/templates'
 import { renderEmailHtml } from '@core/emailHtml'
 import { genderOf } from './genders'
+import { accountForRow } from '@core/mailAccounts'
 
 // The key a created draft is logged under. Venue+City+Band identifies a venue
 // row independently of its position in the CSV, so the log survives re-sorting
@@ -44,7 +45,9 @@ export function prepareDraft(row, templates, languages, settings) {
     ...resolved,
     ok: true,
     empties: substituted.empties,
-    draft: { to: email, subject: substituted.subject, html, cids },
+    // The band decides which mailbox this goes out from; main resolves the id
+    // back to a full account (host, credentials, Drafts/Sent folders).
+    draft: { to: email, subject: substituted.subject, html, cids, accountId: accountForRow(row, settings).id },
   }
 }
 

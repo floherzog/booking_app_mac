@@ -132,6 +132,7 @@ Everything else sits in `~/Library/Application Support/Booking/`:
 | `schedule.json` | scheduled bulk runs, with their rendered messages |
 | `geo_cache.json` | city → coordinates, seeded from the bundled snapshot |
 | `article_cache.json` | venue name → German grammatical gender, plus your corrections |
+| `secrets.json` (keychain-encrypted) | one mail password per account, plus the GitHub token |
 | `templates/` | `templates.json` plus `assets/` for inline images |
 
 ### Storage adapters
@@ -273,6 +274,49 @@ If Apple Intelligence is off or unavailable, drafting still works: `{{article}}`
 is left out and flagged as missing, the same way an empty `{{contact}}` is.
 Settings ▸ Mail templates shows the live status and how to turn it on.
 
+## Mail accounts
+
+One entry per mailbox you send from, in **Settings ▸ Mail settings**. Each has its
+own IMAP and SMTP servers, its own username, its own password in the keychain, and
+its own Drafts and Sent folders — so they can be entirely separate accounts at
+different providers, not just aliases.
+
+Bands pick one in **Settings ▸ Bands** ("Sends as"). The picker only appears once
+there is more than one account, and any band that does not name one uses the
+first. A venue's mail goes out from its band's account: the From address, the
+Drafts folder it lands in, and the Sent folder the copy is filed to all follow.
+
+Removing an account unassigns the bands pointing at it and deletes its keychain
+entry.
+
+**Your existing setup is migrated automatically.** The single mailbox the app used
+to have becomes the first account, keeping its password exactly where it was — no
+re-entering, and no fresh keychain prompt for an account that has not changed.
+
+### Sending, and why it fails
+
+Receiving and sending are different servers, and only receiving was ever testable
+before. Each account now has both:
+
+- **Test receiving (IMAP)** — connects and lists your mailboxes, filling in the
+  Drafts folder if it is blank.
+- **Test sending (SMTP)** — proves sending works **without sending anything**.
+
+Leave the SMTP server blank and it is worked out from the IMAP one
+(`imap.gmail.com` → `smtp.gmail.com`). The port picker is explicit about what each
+one means, because getting that pair wrong is the single most common failure:
+
+| Port | Encryption |
+| --- | --- |
+| 587 | STARTTLS — starts plain, upgrades |
+| 465 | TLS — encrypted from the first byte |
+
+> **"Connected, but the mail server never said hello."** The port and its
+> encryption do not match: the server is waiting for a TLS handshake that never
+> came, or the reverse. Try the other port. Earlier versions showed this as the
+> raw *"Greeting never received"*, and could hang for minutes rather than failing;
+> both are fixed.
+
 ## Keeping the date columns honest
 
 Two columns describe things that happened in your mail account, so the app can
@@ -290,6 +334,11 @@ like typing them in, and you press Save. Dates already in the CSV are only ever
 moved forward, never back, so a hand-typed date is never lost to a short scan
 window. Only envelopes are fetched — never message bodies. It runs from the ↻
 button, and optionally once when the app opens.
+
+**Every account is scanned and the results merged.** A band's mail goes out from
+its own mailbox and a venue replies to whichever address wrote to it, so looking
+at only one account would miss both halves. An account that cannot be reached is
+reported without sinking the sync — the others still produce their edits.
 
 ## Apple Mail drafts
 

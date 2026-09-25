@@ -1,6 +1,7 @@
 import { ipcMain } from 'electron'
 import { readSettings } from '../settingsStore.js'
 import { withImapClient, resolveSentMailbox, friendlyMailError } from './mailImap.js'
+import { normalizeAccounts, accountLabel } from '../../core/mailAccounts.js'
 import { latestByAddress, buildSyncEdits, scanSince } from '../../core/mailSync.js'
 
 // Reading the mail account to keep the CSV's date columns honest.
@@ -78,7 +79,29 @@ function inboxSenders(msg) {
   return [{ address: from.address, date, autoReply }]
 }
 
+// One account's contribution to the sync.
+async function scanAccount(account, { since, wantSent, wantReplies }) {
+  return withImapClient(account, async (client, acc) => {
+    let sent = []
+    let inbox = []
+    if (wantSent) {
+      const mailboxes = (await client.list()).map(m => ({ path: m.path, specialUse: m.specialUse }))
+      sent = await collect(client, resolveSentMailbox(mailboxes, acc.sentMailbox), since, sentRecipients)
+    }
+    if (wantReplies) {
+      inbox = await collect(client, 'INBOX', since, inboxSenders)
+    }
+    return { sent, inbox }
+  })
+}
+
 // rows: a slim projection — { _idx, Email, 'Last emailed', Status }.
+//
+// Every configured account is scanned and the results merged: a band's mail goes
+// out from its own mailbox, and a venue's reply comes back to whichever address
+// wrote to it, so looking at only one account would silently miss both. An
+// account that cannot be reached is reported but never sinks the whole sync —
+// the ones that did work still produce their edits.
 export async function runMailSync(rows = []) {
   const settings = readSettings()
   const sync = settings.mail?.sync || {}
@@ -87,30 +110,39 @@ export async function runMailSync(rows = []) {
   if (!wantSent && !wantReplies) return { edits: [], scanned: { sent: 0, inbox: 0 }, skipped: 'off' }
 
   const since = scanSince(sync.months)
+  const accounts = normalizeAccounts(settings.mail)
 
-  return withImapClient(async (client, s) => {
-    let sentMessages = []
-    let inboxMessages = []
+  const sentMessages = []
+  const inboxMessages = []
+  const failures = []
 
-    if (wantSent) {
-      const mailboxes = (await client.list()).map(m => ({ path: m.path, specialUse: m.specialUse }))
-      const sentBox = resolveSentMailbox(mailboxes, s.mail?.sentMailbox)
-      sentMessages = await collect(client, sentBox, since, sentRecipients)
+  for (const account of accounts) {
+    // An account with no username was never set up; skip it silently rather than
+    // reporting a failure the user did not cause.
+    if (!account.user) continue
+    try {
+      const { sent, inbox } = await scanAccount(account, { since, wantSent, wantReplies })
+      sentMessages.push(...sent)
+      inboxMessages.push(...inbox)
+    } catch (e) {
+      failures.push(`${accountLabel(account)}: ${e.message}`)
     }
-    if (wantReplies) {
-      inboxMessages = await collect(client, 'INBOX', since, inboxSenders)
-    }
+  }
 
-    const edits = buildSyncEdits(rows, {
-      sent: latestByAddress(sentMessages),
-      replies: latestByAddress(inboxMessages),
-    }, {
-      lastEmailed: wantSent ? 'imap' : 'off',
-      repliesMode: wantReplies ? 'imap' : 'off',
-    })
-
-    return { edits, scanned: { sent: sentMessages.length, inbox: inboxMessages.length }, since: since.toISOString() }
+  const edits = buildSyncEdits(rows, {
+    sent: latestByAddress(sentMessages),
+    replies: latestByAddress(inboxMessages),
+  }, {
+    lastEmailed: wantSent ? 'imap' : 'off',
+    repliesMode: wantReplies ? 'imap' : 'off',
   })
+
+  return {
+    edits,
+    scanned: { sent: sentMessages.length, inbox: inboxMessages.length, accounts: accounts.length },
+    failures,
+    since: since.toISOString(),
+  }
 }
 
 export function registerMailSyncIpc() {

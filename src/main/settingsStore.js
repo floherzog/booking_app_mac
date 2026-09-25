@@ -4,6 +4,7 @@ import { app } from 'electron'
 import { mergeRules, DEFAULT_RULES } from '../core/rules.js'
 import { normalizeBands } from '../core/bands.js'
 import { normalizeVenueTypes, DEFAULT_VENUE_TYPES } from '../core/venueTypes.js'
+import { normalizeAccounts } from '../core/mailAccounts.js'
 import { DEFAULT_TEMPLATE_OPTIONS } from '../core/templates.js'
 
 // Plain JSON in userData. Small, human-readable, and easy to back up — the CSV
@@ -27,17 +28,10 @@ export const DEFAULT_SETTINGS = {
     },
   },
   mail: {
-    host: 'imap.mail.me.com',
-    port: 993,
-    // Sending reuses the same account and the same app-specific password; only
-    // the server differs. 587 is STARTTLS, 465 implicit TLS.
-    smtpHost: 'smtp.mail.me.com',
-    smtpPort: 587,
-    user: '',
-    fromAddress: '',
-    fromName: '',
-    draftsMailbox: '',
-    sentMailbox: '',
+    // One entry per mailbox the app sends from; bands pick one by id. The first
+    // is the default. Each carries its own IMAP and SMTP settings and its own
+    // keychain entry — see src/core/mailAccounts.js.
+    accounts: [],
     // Keeping the CSV's date columns in step with the mail account. Nothing here
     // ever writes a row directly — a sync stages edits you confirm with Save.
     sync: {
@@ -98,9 +92,12 @@ function withDefaults(stored) {
       map: isPlainObject(s.languages?.map) ? s.languages.map : { ...DEFAULT_SETTINGS.languages.map },
     },
     mail: {
-      ...DEFAULT_SETTINGS.mail,
-      ...(s.mail || {}),
       sync: { ...DEFAULT_SETTINGS.mail.sync, ...(isPlainObject(s.mail?.sync) ? s.mail.sync : {}) },
+      // Reads both shapes: a stored `accounts` list, or the flat host/user/…
+      // fields written before accounts existed, which become the first account.
+      // The flat fields are deliberately not carried forward, so there is only
+      // ever one source of truth after the first save.
+      accounts: normalizeAccounts(s.mail),
     },
     general: { ...DEFAULT_SETTINGS.general, ...(isPlainObject(s.general) ? s.general : {}) },
     dismissedDupes: Array.isArray(s.dismissedDupes) ? s.dismissedDupes : [],

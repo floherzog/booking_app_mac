@@ -7,6 +7,11 @@ import { app, safeStorage } from 'electron'
 // only `has…` booleans; every consumer of a secret runs in the main process.
 const KEYS = new Set(['githubToken', 'imapPassword'])
 
+// One mail password per account: "imapPassword:<accountId>". The allowlist stays
+// closed — the suffix is matched against a narrow character set rather than the
+// list being opened up — because these keys come in over IPC from the renderer.
+const PER_ACCOUNT_KEY = /^imapPassword:[A-Za-z0-9_-]{1,64}$/
+
 function secretsPath() {
   return join(app.getPath('userData'), 'secrets.json')
 }
@@ -34,7 +39,8 @@ function writeRaw(obj) {
 }
 
 function assertKey(key) {
-  if (!KEYS.has(key)) throw new Error(`Unknown secret "${key}"`)
+  if (KEYS.has(key) || PER_ACCOUNT_KEY.test(key)) return
+  throw new Error(`Unknown secret "${key}"`)
 }
 
 export function setSecret(key, value) {

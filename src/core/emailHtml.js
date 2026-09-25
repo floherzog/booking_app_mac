@@ -40,10 +40,17 @@ function addStyle(tag, style) {
   return tag.replace(/^<(\w+)/, `<$1 style="${style}"`)
 }
 
+// How an inline asset is addressed in the finished HTML. An email refers to its
+// attachments by Content-ID, which is meaningless to a browser — so the in-app
+// preview overrides this to point back at the app's own asset scheme. Everything
+// else about the rendering stays identical, which is the point of the preview.
+export const cidAssetSrc = assetId => `cid:asset-${assetId}`
+export const appAssetSrc = assetId => `booking-asset://${assetId}`
+
 // bodyJSON (already placeholder-substituted) → an email-ready HTML document plus
 // the inline assets it references. Each booking-asset://<id> becomes cid:asset-<id>;
 // the caller (main, when building the MIME) attaches the matching files.
-export function renderEmailHtml(bodyJSON) {
+export function renderEmailHtml(bodyJSON, { assetSrc = cidAssetSrc } = {}) {
   const doc = bodyJSON || { type: 'doc', content: [] }
   let html = generateHTML(doc, EMAIL_EXTENSIONS)
 
@@ -55,7 +62,7 @@ export function renderEmailHtml(bodyJSON) {
       const assetId = m[1]
       const cid = `asset-${assetId}`
       if (!cids.some(c => c.cid === cid)) cids.push({ cid, assetId })
-      out = out.replace(m[0], `src="cid:${cid}"`)
+      out = out.replace(m[0], `src="${assetSrc(assetId)}"`)
     }
     // A width="N" attribute (the video thumbnail) becomes a matching CSS width,
     // so clients that ignore the attribute still size it the same.

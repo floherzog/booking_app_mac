@@ -8,8 +8,11 @@ vi.mock('../secrets.js', () => ({ getSecret: key => (key === 'imapPassword' ? 'a
 
 const { defaultSmtpHost, smtpConfig, sendMailWith } = await import('../ipc/mailSmtp.js')
 
-const settings = {
-  mail: { host: 'imap.mail.me.com', user: 'me@icloud.com', fromName: 'Me', fromAddress: 'me@icloud.com' },
+// smtpConfig and sendMailWith now take one mail account rather than the whole
+// settings object — a band can send from its own mailbox.
+const account = {
+  id: 'default', label: '', host: 'imap.mail.me.com', smtpHost: '', smtpPort: 587,
+  user: 'me@icloud.com', fromName: 'Me', fromAddress: 'me@icloud.com',
 }
 
 describe('defaultSmtpHost', () => {
@@ -22,18 +25,18 @@ describe('defaultSmtpHost', () => {
 
 describe('smtpConfig', () => {
   it('falls back to the derived host and STARTTLS on 587', () => {
-    const cfg = smtpConfig(settings)
+    const cfg = smtpConfig(account)
     expect(cfg).toMatchObject({ host: 'smtp.mail.me.com', port: 587, secure: false, requireTLS: true })
     expect(cfg.auth).toEqual({ user: 'me@icloud.com', pass: 'app-specific' })
   })
 
   it('uses implicit TLS on 465', () => {
-    const cfg = smtpConfig({ mail: { ...settings.mail, smtpPort: 465 } })
+    const cfg = smtpConfig({ ...account, smtpPort: 465 })
     expect(cfg).toMatchObject({ port: 465, secure: true, requireTLS: false })
   })
 
   it('refuses to guess a username', () => {
-    expect(() => smtpConfig({ mail: { host: 'imap.mail.me.com' } })).toThrow(/username/i)
+    expect(() => smtpConfig({ id: 'default', host: 'imap.mail.me.com' })).toThrow(/username/i)
   })
 })
 
@@ -50,7 +53,7 @@ describe('sendMailWith', () => {
     const transport = fakeTransport()
     const filed = []
     const res = await sendMailWith(
-      transport, settings,
+      transport, account,
       { to: 'venue@example.com', subject: 'Hallo', html: '<p>Hi</p>' },
       { resolveAsset: () => null, fileToSent: async mime => { filed.push(mime); return { mailbox: 'Sent Messages' } } },
     )
@@ -68,7 +71,7 @@ describe('sendMailWith', () => {
   it('still reports success when filing the copy in Sent fails', async () => {
     const transport = fakeTransport()
     const res = await sendMailWith(
-      transport, settings,
+      transport, account,
       { to: 'venue@example.com', subject: 'x', html: '<p>x</p>' },
       { resolveAsset: () => null, fileToSent: async () => { throw new Error('no Sent mailbox') } },
     )
@@ -77,7 +80,33 @@ describe('sendMailWith', () => {
   })
 
   it('refuses a message with no recipient', async () => {
-    await expect(sendMailWith(fakeTransport(), settings, { subject: 'x' }, { fileToSent: async () => ({}) }))
+    await expect(sendMailWith(fakeTransport(), account, { subject: 'x' }, { fileToSent: async () => ({}) }))
       .rejects.toThrow(/recipient/i)
+  })
+})
+
+describe('smtpConfig — the settings that cause "Greeting never received"', () => {
+  it('derives the SMTP host when none is set, rather than assuming iCloud', () => {
+    // The old default wrote smtp.mail.me.com into every config regardless of
+    // provider, which silently pointed non-iCloud users at Apple's server.
+    expect(smtpConfig({ ...account, host: 'imap.gmail.com', smtpHost: '' }).host).toBe('smtp.gmail.com')
+  })
+
+  it('pairs 465 with implicit TLS and everything else with STARTTLS', () => {
+    expect(smtpConfig({ ...account, smtpPort: 465 })).toMatchObject({ secure: true, requireTLS: false })
+    expect(smtpConfig({ ...account, smtpPort: 587 })).toMatchObject({ secure: false, requireTLS: true })
+    expect(smtpConfig({ ...account, smtpPort: 25 })).toMatchObject({ secure: false, requireTLS: true })
+  })
+
+  it('bounds every timeout, so a wrong port fails instead of hanging', () => {
+    const cfg = smtpConfig(account)
+    expect(cfg.greetingTimeout).toBeGreaterThan(0)
+    expect(cfg.connectionTimeout).toBeGreaterThan(0)
+    expect(cfg.socketTimeout).toBeGreaterThan(0)
+  })
+
+  it('names the account in its error when one is labelled', () => {
+    expect(() => smtpConfig({ id: 'account-1', label: 'Side project', host: 'imap.x.com' }))
+      .toThrow(/Side project/)
   })
 })

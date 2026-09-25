@@ -334,3 +334,41 @@ Needs a real account — see `VERIFY-MAIL.md`.
       explanation on hover.
 - [ ] A row with unsaved edits shows amber instead, and returns to its health
       colour after Save.
+
+## Mail accounts (0.5.0)
+
+The migration is the risky part: an existing single-mailbox setup must keep
+working with no action at all.
+
+- [ ] Upgrade with an existing configured mailbox. Settings ▸ Mail settings shows
+      exactly one account, pre-filled, marked *default*. Drafting still works
+      **without re-entering the password** and **without a new keychain prompt**.
+- [ ] Settings ▸ Bands shows no "Sends as" picker while there is only one account.
+- [ ] Add a second account with a different provider. Test receiving and Test
+      sending both pass on each account independently.
+- [ ] The "Sends as" picker now appears. Assign one band to the second account.
+- [ ] Draft for a venue of that band: it lands in the **second** account's Drafts
+      folder, with that account's From address.
+- [ ] Draft for a venue of an unassigned band: it lands in the first account's.
+- [ ] Send for real from each: the copy is filed in the right account's Sent.
+- [ ] Run a mail sync: dates from **both** accounts are staged.
+- [ ] Break one account's password and sync again: the working account still
+      produces its edits, and the broken one is named in the message.
+- [ ] Remove the second account: the band that used it falls back to the default,
+      and its keychain entry is gone.
+
+## SMTP diagnosis (0.5.0)
+
+- [ ] Clear the SMTP server field: the placeholder shows what it derives to, and
+      Test sending reports "server worked out from the IMAP host".
+- [ ] Set the port to 465 on an account whose provider wants 587 (or the reverse).
+      Test sending fails within ~15 seconds — not minutes — with the explanation
+      about the port and its encryption, not a raw error string.
+- [ ] Fix the port: Test sending passes and names the host, port and encryption.
+
+## Template preview images (0.5.0)
+
+- [ ] Put an inline image and a video thumbnail in a template. Both appear in the
+      **preview pane**, not as broken images. (They were `cid:` references, which
+      only mean something inside an email.)
+- [ ] Create a draft from that template and open it in Mail: both still appear.
