@@ -42,6 +42,28 @@ function isNewer(candidate, existingRaw) {
   return a > b
 }
 
+// The edits one row gets from its latest sent message and latest reply (either
+// may be missing).
+function editsForRow(row, sentHit, replyHit, { lastEmailed, repliesMode }) {
+  const edits = []
+  if (lastEmailed === 'imap' && sentHit && isNewer(sentHit.date, row['Last emailed'])) {
+    edits.push({ _idx: row._idx, field: 'Last emailed', value: formatDateDDMMYY(sentHit.date), before: row['Last emailed'] || '' })
+  }
+  if (repliesMode === 'imap' && replyHit) {
+    const current = parseReplyStatus(row['Status'])
+    // A real reply always outranks an auto-reply already on record, even when
+    // the auto-reply is newer — an auto-responder is not a response.
+    const upgrade = current.kind !== 'reply' && !replyHit.autoReply
+    if (upgrade || isNewer(replyHit.date, current.dateStr)) {
+      const value = composeReplyStatus(replyHit.autoReply ? 'auto-reply' : 'reply', formatDateDDMMYY(replyHit.date))
+      if (value !== (row['Status'] || '')) {
+        edits.push({ _idx: row._idx, field: 'Status', value, before: row['Status'] || '' })
+      }
+    }
+  }
+  return edits
+}
+
 // → [{ _idx, field, value, before }]. One entry per cell that would change.
 //
 // `sent` and `replies` are the maps from latestByAddress(). A row whose Email is
@@ -49,33 +71,70 @@ function isNewer(candidate, existingRaw) {
 export function buildSyncEdits(rows = [], { sent = new Map(), replies = new Map() } = {}, opts = {}) {
   const { lastEmailed = 'imap', repliesMode = 'imap' } = opts
   const edits = []
-
   for (const row of rows) {
     const address = normalizeAddress(row?.['Email'])
     if (!address) continue
+    edits.push(...editsForRow(row, sent.get(address), replies.get(address), { lastEmailed, repliesMode }))
+  }
+  return edits
+}
 
-    if (lastEmailed === 'imap') {
-      const hit = sent.get(address)
-      if (hit && isNewer(hit.date, row['Last emailed'])) {
-        edits.push({ _idx: row._idx, field: 'Last emailed', value: formatDateDDMMYY(hit.date), before: row['Last emailed'] || '' })
-      }
-    }
+// Multi-band mode: one venue, several bands, possibly several mailboxes. An
+// address alone no longer says which band a message belongs to, so:
+//   - an entry only counts messages from its own band's account (`accountId`);
+//   - when more of the venue's bands use that same account, the subject decides
+//     — a message naming exactly one of those bands belongs to that band;
+//   - a message naming none (or several) counts for all of them, because
+//     guessing wrong would hide a venue that did get mail.
+//
+// `rows` carry { _idx, Email, Band, accountId, _venueId, 'Last emailed', Status };
+// `sent` and `replies` are raw message lists: { address, date, autoReply, subject, accountId }.
+export function buildMultiBandSyncEdits(rows = [], { sent = [], replies = [] } = {}, opts = {}) {
+  const { lastEmailed = 'imap', repliesMode = 'imap' } = opts
 
-    if (repliesMode === 'imap') {
-      const hit = replies.get(address)
-      if (!hit) continue
-      const current = parseReplyStatus(row['Status'])
-      // A real reply always outranks an auto-reply already on record, even when
-      // the auto-reply is newer — an auto-responder is not a response.
-      const upgrade = current.kind !== 'reply' && !hit.autoReply
-      if (!upgrade && !isNewer(hit.date, current.dateStr)) continue
-      const value = composeReplyStatus(hit.autoReply ? 'auto-reply' : 'reply', formatDateDDMMYY(hit.date))
-      if (value !== (row['Status'] || '')) {
-        edits.push({ _idx: row._idx, field: 'Status', value, before: row['Status'] || '' })
-      }
+  const index = list => {
+    const out = new Map()
+    for (const m of list) {
+      const key = `${m?.accountId || ''}|${normalizeAddress(m?.address)}`
+      const bucket = out.get(key)
+      if (bucket) bucket.push(m)
+      else out.set(key, [m])
     }
+    return out
+  }
+  const sentBy = index(sent)
+  const repliesBy = index(replies)
+
+  // The bands each venue has on each account — the ones a subject must tell apart.
+  const rivals = new Map()
+  for (const r of rows) {
+    const key = `${r._venueId}|${r.accountId || ''}`
+    const band = String(r['Band'] || '').trim()
+    if (!band) continue
+    const list = rivals.get(key)
+    if (list) list.push(band)
+    else rivals.set(key, [band])
   }
 
+  const forRow = (messages, row) => {
+    if (!messages?.length) return null
+    const bands = rivals.get(`${row._venueId}|${row.accountId || ''}`) || []
+    const own = String(row['Band'] || '').trim().toLowerCase()
+    const mine = bands.length < 2 ? messages : messages.filter(m => {
+      const subject = String(m.subject || '').toLowerCase()
+      const named = bands.filter(b => subject.includes(b.toLowerCase()))
+      return named.length !== 1 || named[0].toLowerCase() === own
+    })
+    return latestByAddress(mine).get(normalizeAddress(row['Email'])) || null
+  }
+
+  const edits = []
+  for (const row of rows) {
+    const address = normalizeAddress(row?.['Email'])
+    if (!address) continue
+    const key = `${row.accountId || ''}|${address}`
+    edits.push(...editsForRow(row, forRow(sentBy.get(key), row), forRow(repliesBy.get(key), row), { lastEmailed, repliesMode }))
+  }
   return edits
 }
 

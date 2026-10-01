@@ -1,4 +1,4 @@
-import { readFile, writeFile, rename, stat, unlink } from 'node:fs/promises'
+import { readFile, writeFile, rename, stat, unlink, mkdir } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { ipcMain, dialog, BrowserWindow } from 'electron'
 import { APP_COLUMNS } from '../../core/constants.js'
@@ -28,6 +28,62 @@ async function atomicWrite(path, text) {
     try { await unlink(tmp) } catch { /* ignore */ }
     throw e
   }
+}
+
+// --- Multi-band mode: one CSV per band, read and written as a set -------------
+
+// → [{ path, text, mtimeMs, missing }]. A missing band file is reported rather
+// than thrown: it is an empty band, recreated on the next save.
+export async function readCsvFiles(paths) {
+  return Promise.all((paths || []).map(async path => {
+    try {
+      const text = await readFile(path, 'utf8')
+      return { path, text, mtimeMs: await mtimeOf(path), missing: false }
+    } catch (e) {
+      if (e.code === 'ENOENT') return { path, text: '', mtimeMs: null, missing: true }
+      throw e
+    }
+  }))
+}
+
+// Every file is checked before any is written, so a conflict on the fifth file
+// does not leave the first four already overwritten. Then all temp files are
+// written, and only then renamed into place: the window in which a crash could
+// leave a mixed set is the renames alone.
+export async function writeCsvFiles({ files = [], force = false } = {}) {
+  if (!force) {
+    for (const { path, expectedMtimeMs } of files) {
+      const current = await mtimeOf(path)
+      // A file we never saw (new band) must not exist by now either; one we did
+      // see must not have changed.
+      const changed = expectedMtimeMs == null ? current != null : current !== expectedMtimeMs
+      if (changed) throw new Error(`CSV_CONFLICT: ${basename(path)} changed on disk since it was loaded.`)
+    }
+  }
+  const staged = []
+  try {
+    for (const { path, text } of files) {
+      const tmp = join(dirname(path), `.${basename(path)}.${process.pid}.tmp`)
+      await writeFile(tmp, text, 'utf8')
+      staged.push({ tmp, path })
+    }
+    for (const { tmp, path } of staged) await rename(tmp, path)
+  } catch (e) {
+    for (const { tmp } of staged) { try { await unlink(tmp) } catch { /* renamed or gone */ } }
+    throw e
+  }
+  const mtimes = {}
+  for (const { path } of files) mtimes[path] = await mtimeOf(path)
+  return { mtimes }
+}
+
+// Backups when switching multi-band mode on or off. Never overwrites: losing the
+// file being backed up to is exactly what a backup is meant to prevent.
+export async function moveFile({ from, to }) {
+  if (await mtimeOf(to) != null) throw new Error(`${basename(to)} already exists — move it away first.`)
+  await mkdir(dirname(to), { recursive: true })
+  await rename(from, to)
+  return { path: to }
 }
 
 export function registerStorageIpc() {
@@ -77,6 +133,11 @@ export function registerStorageIpc() {
     await atomicWrite(path, text)
     return { mtimeMs: await mtimeOf(path) }
   })
+
+  ipcMain.handle('storage:readCsvFiles', (_e, paths) => readCsvFiles(paths))
+  ipcMain.handle('storage:writeCsvFiles', (_e, args) => writeCsvFiles(args))
+  ipcMain.handle('storage:moveFile', (_e, args) => moveFile(args))
+  ipcMain.handle('storage:fileExists', async (_e, path) => (await mtimeOf(path)) != null)
 
   // Export = "write a copy wherever you like", so it always asks.
   ipcMain.handle('storage:exportCsv', async (event, text, defaultName) => {

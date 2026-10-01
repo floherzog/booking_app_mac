@@ -14,6 +14,10 @@ export const DEFAULT_SETTINGS = {
     adapter: 'file',           // 'file' | 'github'
     filePath: '',              // absolute path to the semicolon CSV
     github: { repo: '', path: '' },
+    // Multi-band mode (local file only): one CSV per band plus one for venues
+    // without a band, all in `dir`. `files` maps band name → path; `sourcePath`
+    // is the single CSV they were split from, and where switching off merges to.
+    multiBand: { enabled: false, dir: '', base: '', files: {}, unassigned: '', sourcePath: '' },
   },
   rules: DEFAULT_RULES,
   bands: [],
@@ -67,6 +71,11 @@ function withDefaults(stored) {
       ...DEFAULT_SETTINGS.storage,
       ...(s.storage || {}),
       github: { ...DEFAULT_SETTINGS.storage.github, ...(s.storage?.github || {}) },
+      multiBand: {
+        ...DEFAULT_SETTINGS.storage.multiBand,
+        ...(s.storage?.multiBand || {}),
+        files: isPlainObject(s.storage?.multiBand?.files) ? s.storage.multiBand.files : {},
+      },
     },
     rules: mergeRules(s.rules),
     bands: normalizeBands(s.bands),

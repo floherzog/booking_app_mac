@@ -18,6 +18,7 @@ import { parseDate, formatDateDDMMYY, toInputValue, fromInputValue } from '@core
 import { parseReplyStatus, composeReplyStatus, replyHealth } from '@core/replyStatus'
 import { healthMeta, HEALTH_META } from '../lib/health'
 import { prepareDraft } from '../lib/drafts'
+import { isSharedField } from '@core/multiBand'
 
 
 // The Last Reply kind reads as a recorded fact (a tinted badge with an inbound
@@ -60,6 +61,78 @@ function mkEditable(field, opts = {}) {
         />
       )
     },
+  })
+}
+
+// --- Several bands per venue (multi-band mode) ---------------------------------
+// The table shows one row per venue. Its data is a group: the venue's first
+// entry, plus `_entries` — every band entry of the venue that passed the
+// filters. Venue-wide columns render once; the per-band ones below render one
+// fixed-height line per entry, so the lines of one band sit level across the
+// columns. A venue with a single band renders exactly as before.
+const PER_BAND = new Set(['_status', 'Band', 'Last emailed', 'Follow Up Date', 'Note', 'Status', 'flags'])
+
+// The cell context TanStack would have built if the entry were the row.
+function entryContext(i, entry, accessorKey) {
+  return {
+    ...i,
+    row: { ...i.row, original: entry },
+    getValue: () => (accessorKey ? entry[accessorKey] : undefined),
+    // Cells that are tall on their own (Outreach) lay out flatter when stacked.
+    stacked: true,
+  }
+}
+
+// The entry a group sorts by: the one that would sort first — the most urgent
+// status, the earliest date.
+function sortEntry(row, fn, colId) {
+  const entries = row.original._entries || [row.original]
+  return entries
+    .map(original => ({ ...row, original }))
+    .reduce((best, x) => (fn(x, best, colId) < 0 ? x : best))
+}
+
+function perBand(col) {
+  const { cell, sortingFn, accessorKey } = col
+  return {
+    ...col,
+    cell: i => {
+      const entries = i.row.original._entries || [i.row.original]
+      if (entries.length < 2) return flexRender(cell, i)
+      return (
+        <div className="-my-2 divide-y divide-gray-100 dark:divide-gray-800">
+          {entries.map(e => (
+            // data-entry: a click on this line opens this band, not the first.
+            <div key={e._idx} data-entry={e._idx} className="h-[5rem] py-2 overflow-hidden">
+              {flexRender(cell, entryContext(i, e, accessorKey))}
+            </div>
+          ))}
+        </div>
+      )
+    },
+    sortingFn: typeof sortingFn === 'function'
+      ? (a, b, colId) => sortingFn(sortEntry(a, sortingFn, colId), sortEntry(b, sortingFn, colId), colId)
+      : sortingFn,
+  }
+}
+
+const withPerBand = col => (PER_BAND.has(col.id ?? col.accessorKey) ? perBand(col) : col)
+
+// Rows (entries) → groups, one per venue, entries ordered most urgent first.
+function groupEntries(rows) {
+  const byVenue = new Map()
+  for (const r of rows) {
+    const key = r._venueId ?? `i${r._idx}`
+    const list = byVenue.get(key)
+    if (list) list.push(r)
+    else byVenue.set(key, [r])
+  }
+  const prio = r => STATUS_META[r._status]?.priority ?? 9
+  return [...byVenue.values()].map(entries => {
+    const sorted = entries.length > 1
+      ? [...entries].sort((a, b) => prio(a) - prio(b) || (a['Band'] || '').localeCompare(b['Band'] || ''))
+      : entries
+    return { ...sorted[0], _entries: sorted }
   })
 }
 
@@ -227,7 +300,7 @@ const COLUMNS = [
       const draft = (edits[row._idx]?.['Draft'] ?? row['Draft'] ?? '') === 'TRUE'
       const auto = (edits[row._idx]?.['Auto'] ?? row['Auto'] ?? '') === 'TRUE'
       return (
-        <div className="flex flex-col gap-1 items-start">
+        <div className={i.stacked ? 'flex flex-wrap gap-1 items-start' : 'flex flex-col gap-1 items-start'}>
           <DraftAction row={{ ...row, ...(edits[row._idx] || {}) }} meta={i.table.options.meta} />
           <FlagPill
             label="Auto-draft" active={draft}
@@ -243,7 +316,7 @@ const COLUMNS = [
       )
     },
   }),
-]
+].map(withPerBand)
 
 // Checkbox column injected at the front only in bulk-select mode. The header
 // checkbox selects/clears every currently-shown (filtered) row.
@@ -280,7 +353,7 @@ const SELECT_COLUMN = helper.display({
   size: 32,
   header: ctx => {
     const { selected, onToggleAll } = ctx.table.options.meta
-    const ids = ctx.table.getRowModel().rows.map(r => r.original._idx)
+    const ids = ctx.table.getRowModel().rows.flatMap(r => (r.original._entries || [r.original]).map(e => e._idx))
     const allSelected = ids.length > 0 && ids.every(i => selected?.has(i))
     return (
       <input
@@ -293,14 +366,17 @@ const SELECT_COLUMN = helper.display({
     )
   },
   cell: i => {
-    const { selected, onToggleRow } = i.table.options.meta
-    const idx = i.row.original._idx
+    const { selected, onToggleAll } = i.table.options.meta
+    // A venue is selected with all of its shown bands; a bulk edit then applies
+    // to each of them.
+    const ids = (i.row.original._entries || [i.row.original]).map(e => e._idx)
+    const checked = ids.every(id => selected?.has(id))
     return (
       <input
         type="checkbox"
         aria-label="Select venue"
-        checked={selected?.has(idx) || false}
-        onChange={() => onToggleRow(idx)}
+        checked={checked}
+        onChange={() => onToggleAll(ids, !checked)}
         onClick={e => e.stopPropagation()}
         className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-400 cursor-pointer"
       />
@@ -323,6 +399,11 @@ const dateSortingFn = field => (a, b) => {
 // An editable column for a field that isn't shown by default, so the column the
 // user sorts by in the advanced panel becomes visible in the table.
 function buildExtraColumn(field) {
+  const col = buildExtraColumnDef(field)
+  return col && !isSharedField(field) ? perBand(col) : col
+}
+
+function buildExtraColumnDef(field) {
   const col = ADVANCED_COLUMNS.find(c => c.key === field)
   if (!col) return null
   if (col.type === 'date') {
@@ -461,8 +542,64 @@ function FlagPill({ label, active, activeClass, onToggle }) {
   )
 }
 
+// One band's part of a mobile card in multi-band mode: its status, band, dates
+// and flags on a couple of lines. Tapping it opens that band.
+function MobileEntry({ entry, edits, onEdit }) {
+  const e = { ...entry, ...(edits[entry._idx] || {}) }
+  const draftNext = e['Draft'] === 'TRUE'
+  const autoSend = e['Auto'] === 'TRUE'
+  return (
+    <div data-entry={entry._idx} className="py-1.5 border-t border-gray-100 dark:border-gray-800 first:border-0">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs font-medium text-gray-700 dark:text-gray-300">{e['Band'] || <span className="italic text-gray-400">no band</span>}</span>
+        <StatusBadge status={entry._status} />
+      </div>
+      <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5">
+        {e['Last emailed'] && <span className="text-xs text-gray-400">Emailed <RelDate raw={e['Last emailed']} colorFn={lastEmailedColor} row={e} /></span>}
+        {e['Follow Up Date'] && <span className="text-xs text-gray-400">Follow up <RelDate raw={e['Follow Up Date']} colorFn={followUpColor} row={e} /></span>}
+      </div>
+      <div className="mt-1 flex gap-1.5">
+        <FlagPill label="Auto-draft" active={draftNext} activeClass="bg-emerald-500 text-white border-emerald-500"
+          onToggle={() => onEdit(entry._idx, 'Draft', draftNext ? '' : 'TRUE')} />
+        <FlagPill label="Auto-send" active={autoSend} activeClass="bg-teal-500 text-white border-teal-500"
+          onToggle={() => onEdit(entry._idx, 'Auto', autoSend ? '' : 'TRUE')} />
+      </div>
+    </div>
+  )
+}
+
 function MobileCard({ row, edits, onVenueClick, onEdit }) {
   const r = row.original
+  const entries = r._entries || [r]
+  if (entries.length > 1) {
+    const effective = { ...r, ...(edits[r._idx] || {}) }
+    const missing = getMissingFields(effective)
+    return (
+      <div
+        onClick={e => {
+          if (e.target.closest('button, a, input')) return
+          const line = e.target.closest('[data-entry]')
+          onVenueClick(line ? Number(line.dataset.entry) : r._idx)
+        }}
+        className={`w-full text-left px-3 py-3 border-b border-gray-100 dark:border-gray-800 last:border-0 active:bg-gray-100 dark:active:bg-gray-800 transition-colors cursor-pointer ${entries.some(x => edits[x._idx]) ? 'bg-amber-50/40 dark:bg-amber-900/10' : ''}`}
+      >
+        <div className="flex items-start justify-between gap-2">
+          <span className="text-sm font-semibold text-gray-900 dark:text-gray-100 leading-tight">{effective['Venue'] || '—'}</span>
+          {missing.length > 0 && (
+            <span title={`Missing: ${missing.join(', ')}`} className={`w-4 h-4 shrink-0 rounded-full text-[10px] font-bold flex items-center justify-center ${SEVERITY_BADGE[getMissingSeverity(effective)] || SEVERITY_BADGE[1]}`}>!</span>
+          )}
+        </div>
+        <div className="mt-0.5 flex flex-wrap gap-x-2 text-xs text-gray-500 dark:text-gray-400">
+          {(effective['City'] || effective['Country']) && <span>{[effective['City'], effective['Country']].filter(Boolean).join(', ')}</span>}
+          {effective['Type'] && <span className="text-gray-400">{effective['Type']}</span>}
+        </div>
+        <div className="mt-1">
+          {entries.map(x => <MobileEntry key={x._idx} entry={x} edits={edits} onEdit={onEdit} />)}
+        </div>
+      </div>
+    )
+  }
+
   const rowEdits = edits[r._idx] || {}
   const effective = { ...r, ...rowEdits }
   const missing = getMissingFields(effective)
@@ -556,8 +693,9 @@ export default function BookingTable({ rows, edits, onEdit, onVenueClick, sortBy
   // TanStack Table returns functions the React Compiler can't memoize; that's
   // expected here and safe, so silence the compatibility hint.
   // eslint-disable-next-line react-hooks/incompatible-library
+  const groups = useMemo(() => groupEntries(rows), [rows])
   const table = useReactTable({
-    data: rows,
+    data: groups,
     columns,
     state: { sorting, columnVisibility: { _missingSeverity: false } },
     onSortingChange: setSorting,
@@ -659,7 +797,7 @@ export default function BookingTable({ rows, edits, onEdit, onVenueClick, sortBy
               {virtualRows.map(v => {
                 const row = sortedRows[v.index]
                 const meta = STATUS_META[row.original._status] || {}
-                const hasRowEdits = !!edits[row.original._idx]
+                const hasRowEdits = (row.original._entries || [row.original]).some(e => edits[e._idx])
                 const highlight = hasRowEdits ? '' : rowHighlight(row.original)
                 return (
                   <tr
@@ -669,7 +807,8 @@ export default function BookingTable({ rows, edits, onEdit, onVenueClick, sortBy
                     className={`cursor-pointer ${meta.row || ''} ${highlight} hover:bg-gray-50 dark:hover:bg-gray-800/60 transition-colors ${hasRowEdits ? 'bg-amber-50/40 dark:bg-amber-900/10' : ''}`}
                     onClick={e => {
                       if (e.target.closest('input, textarea, button, a, select')) return
-                      table.options.meta.onVenueClick(row.original._idx)
+                      const line = e.target.closest('[data-entry]')
+                      table.options.meta.onVenueClick(line ? Number(line.dataset.entry) : row.original._idx)
                     }}
                   >
                     {row.getVisibleCells().map(cell => (

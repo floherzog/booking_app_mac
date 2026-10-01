@@ -7,7 +7,7 @@ import { guessMapping, applyMapping, mappedCount } from '@core/importMap'
 const NONE = '' // sentinel: "don't import this app column"
 const REQUIRED = ['Venue', 'Band', 'Email']
 
-export default function ImportWizard({ rows = [], onImport, onBack, onClose, preloaded = null }) {
+export default function ImportWizard({ rows = [], onImport, onBack, onClose, preloaded = null, multiBand = false }) {
   const [step, setStep] = useState('file') // 'file' | 'mode' | 'map'
   const [parsed, setParsed] = useState(null) // { headers, rows, name, path }
   // Importing only fills the table; the file it came from is not the app's CSV
@@ -68,7 +68,8 @@ export default function ImportWizard({ rows = [], onImport, onBack, onClose, pre
 
   // Only meaningful when the whole table comes from this file: adopting the path
   // while appending would silently point Save at a file that is missing rows.
-  const canAdopt = !!parsed?.path && mode === 'replace'
+  // Multi-band mode saves to its band files, so there is no one file to adopt.
+  const canAdopt = !!parsed?.path && mode === 'replace' && !multiBand
 
   function handleConfirm() {
     const mapped = applyMapping(parsed.rows, mapping)

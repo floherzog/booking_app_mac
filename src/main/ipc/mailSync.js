@@ -2,7 +2,8 @@ import { ipcMain } from 'electron'
 import { readSettings } from '../settingsStore.js'
 import { withImapClient, resolveSentMailbox, friendlyMailError } from './mailImap.js'
 import { normalizeAccounts, accountLabel } from '../../core/mailAccounts.js'
-import { latestByAddress, buildSyncEdits, scanSince } from '../../core/mailSync.js'
+import { latestByAddress, buildSyncEdits, buildMultiBandSyncEdits, scanSince } from '../../core/mailSync.js'
+import { isMultiBand } from '../../core/multiBand.js'
 
 // Reading the mail account to keep the CSV's date columns honest.
 //
@@ -62,9 +63,11 @@ function sentRecipients(msg) {
   const date = envelopeDate(msg)
   if (!date || Number.isNaN(date.getTime())) return null
   const people = [...(msg.envelope.to || []), ...(msg.envelope.cc || [])]
+  // The subject tells bands apart that share a mailbox (multi-band mode).
+  const subject = msg.envelope.subject || ''
   return people
     .filter(p => p?.address)
-    .map(p => ({ address: p.address, date }))
+    .map(p => ({ address: p.address, date, subject }))
 }
 
 function inboxSenders(msg) {
@@ -76,7 +79,7 @@ function inboxSenders(msg) {
     headers: msg.headers ? msg.headers.toString() : '',
     subject: msg.envelope.subject || '',
   })
-  return [{ address: from.address, date, autoReply }]
+  return [{ address: from.address, date, autoReply, subject: msg.envelope.subject || '' }]
 }
 
 // One account's contribution to the sync.
@@ -122,20 +125,24 @@ export async function runMailSync(rows = []) {
     if (!account.user) continue
     try {
       const { sent, inbox } = await scanAccount(account, { since, wantSent, wantReplies })
-      sentMessages.push(...sent)
-      inboxMessages.push(...inbox)
+      // Tagged so multi-band mode can match each band to its own mailbox.
+      sentMessages.push(...sent.map(m => ({ ...m, accountId: account.id })))
+      inboxMessages.push(...inbox.map(m => ({ ...m, accountId: account.id })))
     } catch (e) {
       failures.push(`${accountLabel(account)}: ${e.message}`)
     }
   }
 
-  const edits = buildSyncEdits(rows, {
-    sent: latestByAddress(sentMessages),
-    replies: latestByAddress(inboxMessages),
-  }, {
+  const opts = {
     lastEmailed: wantSent ? 'imap' : 'off',
     repliesMode: wantReplies ? 'imap' : 'off',
-  })
+  }
+  const edits = isMultiBand(settings)
+    ? buildMultiBandSyncEdits(rows, { sent: sentMessages, replies: inboxMessages }, opts)
+    : buildSyncEdits(rows, {
+      sent: latestByAddress(sentMessages),
+      replies: latestByAddress(inboxMessages),
+    }, opts)
 
   return {
     edits,

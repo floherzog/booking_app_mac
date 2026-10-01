@@ -8,6 +8,8 @@ import {
   defaultSmtpHost, ACCOUNT_DEFAULTS,
 } from '@core/mailAccounts'
 import LanguagesEditor from './LanguagesEditor'
+import { mergeRows } from '@core/multiBand'
+import { planSplit, planMerge } from '../lib/multiBandSwitch'
 
 const THEMES = [
   { value: 'system', label: 'System' },
@@ -28,7 +30,7 @@ const SECTIONS = [
   { id: 'mail', label: 'Mail settings' },
 ]
 
-export default function SettingsPanel({ config, rows = [], onOpenImport, onOpenTemplates, onOpenLogic, onSave, onNewCsv, onPersist, onClose }) {
+export default function SettingsPanel({ config, rows = [], onOpenImport, onOpenTemplates, onOpenLogic, onSave, onNewCsv, onSetMultiBand, unsavedEdits = 0, onPersist, onClose }) {
   const [form, setForm] = useState(config)
   const [section, setSection] = useState('general')
   // Theme stays a per-Mac preference in localStorage (see the note in the
@@ -55,6 +57,11 @@ export default function SettingsPanel({ config, rows = [], onOpenImport, onOpenT
   const [wipeStep, setWipeStep] = useState(0)
   const [wiping, setWiping] = useState(false)
   const [wiped, setWiped] = useState(false)
+  // Multi-band switch: the plan being confirmed ({ on, ... } from planSplit /
+  // planMerge), and whether it is running.
+  const [mbPlan, setMbPlan] = useState(null)
+  const [mbBusy, setMbBusy] = useState(false)
+  const [mbError, setMbError] = useState('')
 
   // The "Saved" confirmation is the only feedback now that Save no longer
   // closes the panel, so it has to fade on its own.
@@ -250,8 +257,48 @@ export default function SettingsPanel({ config, rows = [], onOpenImport, onOpenT
     setGithubToken('')
   }
 
+  // In multi-band mode this is the merged list — the same single CSV switching
+  // the mode off would write.
   function handleExport() {
-    exportCsv(rows).catch(() => { /* the user cancelled the save dialog */ })
+    exportCsv(mergeRows(rows)).catch(() => { /* the user cancelled the save dialog */ })
+  }
+
+  const multiBandOn = !!config.storage?.multiBand?.enabled
+  // Why the switch can't be flipped right now, if it can't.
+  const mbBlocked = config.storage?.adapter === 'github' && !multiBandOn
+    ? 'Only available with a local CSV file — GitHub storage keeps one file.'
+    : storageDirty ? 'Save the storage change first.'
+      : unsavedEdits > 0 ? `Save or discard your ${unsavedEdits} unsaved venue edit${unsavedEdits !== 1 ? 's' : ''} first.`
+        : ''
+
+  async function prepareMultiBand() {
+    setMbError('')
+    setMbBusy(true)
+    try {
+      setMbPlan(multiBandOn
+        ? { on: false, ...(await planMerge(config, rows)) }
+        : { on: true, ...(await planSplit(config)) })
+    } catch (e) {
+      setMbError(e.message)
+    } finally {
+      setMbBusy(false)
+    }
+  }
+
+  async function confirmMultiBand() {
+    setMbError('')
+    setMbBusy(true)
+    try {
+      const saved = await onSetMultiBand?.(mbPlan.on)
+      // The panel's form still holds the old storage section; a later Save here
+      // would otherwise switch the mode straight back.
+      if (saved) setForm(f => ({ ...f, storage: saved.storage }))
+      setMbPlan(null)
+    } catch (e) {
+      setMbError(e.message)
+    } finally {
+      setMbBusy(false)
+    }
   }
 
   async function handleWipe() {
@@ -381,6 +428,81 @@ export default function SettingsPanel({ config, rows = [], onOpenImport, onOpenT
                   </div>
 
                   <div className="pt-3 border-t border-gray-100 dark:border-gray-700">
+                    <p className={lbl}>Multi-band mode</p>
+                    <label className={`flex items-start gap-2 ${mbBlocked || mbBusy ? 'opacity-60' : 'cursor-pointer'}`}>
+                      <input
+                        type="checkbox"
+                        checked={multiBandOn}
+                        disabled={!!mbBlocked || mbBusy || !!mbPlan}
+                        // The box shows the stored state; flipping it only asks.
+                        onChange={prepareMultiBand}
+                        className="mt-0.5 rounded border-gray-300 dark:border-gray-600 text-indigo-600 focus:ring-indigo-500"
+                      />
+                      <span className="text-xs text-gray-500 dark:text-gray-400">
+                        Book several bands for the same venue
+                        <span className="block text-gray-400 dark:text-gray-500">
+                          Keeps one CSV per band (plus one for venues without a band) and shows them as one
+                          list. Venue details — name, type, city, country, contact, email, website, time
+                          frame — stay the same across bands; everything else is per band. Switching off
+                          merges them back into one CSV.
+                        </span>
+                        {mbBlocked && <span className="block text-amber-600 dark:text-amber-400 mt-1">{mbBlocked}</span>}
+                      </span>
+                    </label>
+
+                    {mbPlan && (
+                      <div className="mt-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-md p-3 space-y-2 text-xs text-amber-800 dark:text-amber-300">
+                        {mbPlan.on ? (
+                          <>
+                            <p className="font-semibold">This adds {mbPlan.files.length} files next to your CSV:</p>
+                            <p className="font-mono break-all text-amber-700 dark:text-amber-400">{mbPlan.dir}</p>
+                            <ul className="space-y-0.5">
+                              {mbPlan.files.map(f => (
+                                <li key={f.path} className="flex justify-between gap-3">
+                                  <span className="font-mono truncate">{f.name}</span>
+                                  <span className="shrink-0">{f.count} venue{f.count !== 1 ? 's' : ''}{f.band ? '' : ' without a band'}</span>
+                                </li>
+                              ))}
+                            </ul>
+                            <p>
+                              Your current CSV, <span className="font-mono">{mbPlan.source}</span>, is renamed to{' '}
+                              <span className="font-mono">{mbPlan.backup}</span> and no longer used.{' '}
+                              <span className="font-semibold">The booking scripts and the web app only know the single
+                              CSV</span> — they won’t see anything you change while this mode is on.
+                            </p>
+                            {mbPlan.clashes.length > 0 && (
+                              <p className="text-red-700 dark:text-red-400 font-medium">
+                                Already in that folder: {mbPlan.clashes.join(', ')}. Move {mbPlan.clashes.length === 1 ? 'it' : 'them'} away first.
+                              </p>
+                            )}
+                          </>
+                        ) : (
+                          <>
+                            <p className="font-semibold">Merge the band files back into one CSV?</p>
+                            <p>
+                              Writes <span className="font-mono">{mbPlan.targetName}</span> with {mbPlan.lines} line{mbPlan.lines !== 1 ? 's' : ''} for {mbPlan.venues} venue{mbPlan.venues !== 1 ? 's' : ''} —
+                              a venue booked for several bands gets one line per band. The band files move into the
+                              folder <span className="font-mono">{mbPlan.backupName}</span>.
+                            </p>
+                          </>
+                        )}
+                        <div className="flex gap-2 pt-1">
+                          <button
+                            type="button"
+                            onClick={confirmMultiBand}
+                            disabled={mbBusy || (mbPlan.on && mbPlan.clashes.length > 0)}
+                            className="bg-amber-600 text-white text-sm font-medium px-3 py-1.5 rounded-md hover:bg-amber-700 transition-colors disabled:opacity-50"
+                          >
+                            {mbBusy ? 'Working…' : mbPlan.on ? 'Split into band files' : 'Merge into one CSV'}
+                          </button>
+                          <button type="button" onClick={() => setMbPlan(null)} disabled={mbBusy} className={outlineBtn}>Cancel</button>
+                        </div>
+                      </div>
+                    )}
+                    {mbError && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{mbError}</p>}
+                  </div>
+
+                  <div className="pt-3 border-t border-gray-100 dark:border-gray-700">
                     <p className={lbl}>Version</p>
                     <div className="flex items-center gap-3">
                       <span className="text-sm text-gray-800 dark:text-gray-200 font-mono">{version || '…'}</span>
@@ -488,6 +610,8 @@ export default function SettingsPanel({ config, rows = [], onOpenImport, onOpenT
                           name="storage-adapter"
                           className="mt-0.5 h-4 w-4 border-gray-300 text-indigo-600 focus:ring-indigo-400"
                           checked={storage.adapter === o.value}
+                          // Multi-band mode is local files only; switch it off first.
+                          disabled={multiBandOn && o.value === 'github'}
                           onChange={() => setStorage({ adapter: o.value })}
                         />
                         <span className="min-w-0">
@@ -532,6 +656,16 @@ export default function SettingsPanel({ config, rows = [], onOpenImport, onOpenT
                       </div>
                     </div>
                   ) : (
+                    multiBandOn ? (
+                    <div>
+                      <label className={lbl}>Band files</label>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        Multi-band mode is on: one CSV per band in{' '}
+                        <span className="font-mono break-all">{config.storage.multiBand.dir}</span>. Switch it off in
+                        General to go back to a single file.
+                      </p>
+                    </div>
+                    ) : (
                     <div>
                       <label className={lbl}>CSV file</label>
                       <div className="flex gap-2 items-center">
@@ -543,6 +677,7 @@ export default function SettingsPanel({ config, rows = [], onOpenImport, onOpenT
                         Macs at once — the app warns you if it changed underneath, but it can’t merge.
                       </p>
                     </div>
+                    )
                   )}
 
                   <div className="pt-4 border-t border-gray-100 dark:border-gray-700">
@@ -604,7 +739,9 @@ export default function SettingsPanel({ config, rows = [], onOpenImport, onOpenT
                         ? 'Save the storage change first — this empties the CSV the app currently has open.'
                         : wiped
                         ? 'Done — the list is empty. Add venues with + New Venue, or import a CSV.'
-                        : 'Empties the CSV above so you can start from a blank list. Settings, bands and templates are kept.'}
+                        : multiBandOn
+                          ? 'Empties every band file so you can start from a blank list. Settings, bands and templates are kept.'
+                          : 'Empties the CSV above so you can start from a blank list. Settings, bands and templates are kept.'}
                     </p>
                   </div>
                 </div>

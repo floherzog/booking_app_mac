@@ -6,6 +6,12 @@ const FIELD_LABELS = {
   'Time Frame': 'Time Frame',
 }
 function label(f) { return FIELD_LABELS[f] || f }
+// "Kulturfabrik · Band A": in multi-band mode one venue has a line per band, and
+// the list has to say which one changed. Harmless in normal mode.
+function venueLabel(row, idx) {
+  const name = row['Venue'] || `Row ${idx}`
+  return row['Band'] ? `${name} · ${row['Band']}` : name
+}
 
 export default function SaveModal({ rows, edits, deletions = new Set(), additions = new Set(), adapter, onSuccess, onClose }) {
   const [pushing, setPushing] = useState(false)
@@ -17,18 +23,18 @@ export default function SaveModal({ rows, edits, deletions = new Set(), addition
   const changes = []
   deletions.forEach(idx => {
     const row = rows.find(r => r._idx === idx)
-    if (row) changes.push({ idx, venue: row['Venue'] || `Row ${idx}`, field: '—', oldVal: 'deleted', newVal: '', isDelete: true })
+    if (row) changes.push({ idx, venue: venueLabel(row, idx), field: '—', oldVal: 'deleted', newVal: '', isDelete: true })
   })
   additions.forEach(idx => {
     if (deletions.has(idx)) return
     const row = rows.find(r => r._idx === idx)
-    if (row) changes.push({ idx, venue: row['Venue'] || `Row ${idx}`, field: '—', oldVal: '', newVal: 'added', isAdd: true })
+    if (row) changes.push({ idx, venue: venueLabel(row, idx), field: '—', oldVal: '', newVal: 'added', isAdd: true })
   })
   Object.entries(edits).forEach(([idx, fields]) => {
     const row = rows.find(r => r._idx === Number(idx))
     if (!row) return
     Object.entries(fields).forEach(([field, newVal]) => {
-      changes.push({ idx: Number(idx), venue: row['Venue'] || `Row ${idx}`, field, oldVal: row[field] || '', newVal })
+      changes.push({ idx: Number(idx), venue: venueLabel(row, idx), field, oldVal: row[field] || '', newVal })
     })
   })
   changes.sort((a, b) => a.venue.localeCompare(b.venue) || a.field.localeCompare(b.field))
@@ -89,14 +95,14 @@ export default function SaveModal({ rows, edits, deletions = new Set(), addition
                       {c.isDelete
                         ? <span className="text-red-600 dark:text-red-400 font-medium text-xs uppercase tracking-wide">Deleted</span>
                         : c.isAdd
-                          ? <span className="text-emerald-600 dark:text-emerald-400 font-medium text-xs uppercase tracking-wide">New venue</span>
+                          ? <span className="text-emerald-600 dark:text-emerald-400 font-medium text-xs uppercase tracking-wide">Added</span>
                           : <span className="text-gray-500 dark:text-gray-400">{label(c.field)}</span>}
                     </td>
                     <td className="py-2 pr-3 text-red-500 dark:text-red-400 align-top break-words">
                       {c.isDelete || c.isAdd ? '' : (c.oldVal || <span className="text-gray-300 dark:text-gray-600 italic">empty</span>)}
                     </td>
                     <td className="py-2 text-green-700 dark:text-green-400 font-medium align-top break-words">
-                      {c.isDelete ? '' : c.isAdd ? <span className="text-emerald-600 dark:text-emerald-400">imported</span> : (c.newVal || <span className="text-gray-300 dark:text-gray-600 italic">empty</span>)}
+                      {c.isDelete ? '' : c.isAdd ? <span className="text-emerald-600 dark:text-emerald-400">new</span> : (c.newVal || <span className="text-gray-300 dark:text-gray-600 italic">empty</span>)}
                     </td>
                   </tr>
                 ))}

@@ -156,6 +156,44 @@ personal access token with `repo` scope. Useful if you also run the web app or
 the batch scripts against the same list. The token is stored in your keychain,
 never in `settings.json`, and never bundled into the app.
 
+### Multi-band mode
+
+For booking several bands at the same venue. Turn it on in **Settings ▸ General
+▸ Multi-band mode** (local CSV only). The CSV is split into one file per band
+plus one for venues without a band, all in the same folder:
+
+```
+booking-Band A.csv
+booking-Band B.csv
+booking-unassigned.csv
+booking.before-multiband-2026-10-01.csv   ← the original, renamed, no longer used
+```
+
+The app still shows one list. A venue booked for several bands is one row, with
+a line per band in the band-specific columns; the venue dialog has a tab per
+band and **+ Add band…**.
+
+- **Shared across bands:** Venue, Type, City, Country, Contact, Email, Website,
+  Time Frame. Editing these on one band edits them on all of them.
+- **Per band:** everything else (dates, reply status, notes, outreach text,
+  Auto-draft/Auto-send, email counts).
+- **Same venue:** same name and city in different band files. Renaming a venue
+  in only one file outside the app splits it into two venues. The duplicate
+  detector then flags them, and Merge joins them again.
+- **Stats chips** count band entries: a venue whose two bands are both due
+  counts twice, because that is two emails.
+- **Mail sync** matches each band to its own mail account. Bands sharing one
+  account are told apart by the band's name in the subject, so put `{{band}}`
+  in your subjects. A message that names no band counts for all of them.
+
+Switching it off merges everything back into one CSV, with one line per band
+for a venue that has several. The band files are moved into a
+`booking-bands-backup-<date>/` folder. Nothing is ever overwritten in either
+direction.
+
+> The booking scripts and the web app only know the single CSV. They don't see
+> changes made while this mode is on.
+
 ### Secrets
 
 The GitHub token and the mail password are encrypted with Electron's

@@ -8,6 +8,7 @@ import RelDate from './RelDate'
 import DraftVenueButton from './DraftVenueButton'
 import { lastEmailedColor, followUpColor, lastPlayedColor } from '@core/dateColors'
 import { healthMeta } from '../lib/health'
+import { isSharedField } from '@core/multiBand'
 
 function MiniMap({ city, country, status, onOpenMap }) {
   const [pos, setPos] = useState(null)
@@ -312,8 +313,49 @@ function Field({ fieldDef, value, isEdited, onChange, row }) {
   )
 }
 
-export default function VenueDetailModal({ rowIndex, row, edits, onEdit, onClose, onDelete, duplicatePartners = [], onDismissDuplicate, onOpenMerge, onSave, editCount, onOpenMap, bandOptions = [], typeOptions = [], templates = [], languages, settings, draftedAtIso, onDraftCreated, onSent }) {
-  const [confirmDelete, setConfirmDelete] = useState(false)
+// Multi-band mode: one tab per band this venue is booked for, plus a picker to
+// add another. The tab shows the band's status colour, so a glance tells which
+// band needs something.
+function BandTabs({ entries, activeIdx, edits, bandOptions, onSelect, onAdd }) {
+  const bandOf = e => edits[e._idx]?.['Band'] ?? e['Band'] ?? ''
+  const taken = new Set(entries.map(bandOf).filter(Boolean))
+  const free = bandOptions.filter(b => b && !taken.has(b))
+  const sorted = [...entries].sort((a, b) => bandOf(a).localeCompare(bandOf(b)))
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 pt-1">
+      {sorted.map(e => {
+        const active = e._idx === activeIdx
+        return (
+          <button
+            key={e._idx}
+            onClick={() => onSelect(e._idx)}
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium border transition-colors ${active
+              ? 'bg-gray-800 text-white border-gray-800 dark:bg-gray-200 dark:text-gray-900 dark:border-gray-200'
+              : 'text-gray-600 border-gray-300 hover:border-gray-400 dark:text-gray-300 dark:border-gray-600 dark:hover:border-gray-500'}`}
+          >
+            <span className="w-2 h-2 rounded-full" style={{ background: STATUS_META[e._status]?.mapColor ?? '#9CA3AF' }} aria-hidden />
+            {bandOf(e) || <span className="italic">no band</span>}
+          </button>
+        )
+      })}
+      {free.length > 0 && (
+        <select
+          value=""
+          onChange={ev => { if (ev.target.value) onAdd(ev.target.value) }}
+          className="rounded-md border-dashed border-gray-300 dark:border-gray-600 dark:bg-gray-800 text-xs text-gray-500 dark:text-gray-400 py-1 pl-2 pr-7"
+          title="Book this venue for another band too"
+        >
+          <option value="">+ Add band…</option>
+          {free.map(b => <option key={b} value={b}>{b}</option>)}
+        </select>
+      )}
+    </div>
+  )
+}
+
+export default function VenueDetailModal({ rowIndex, row, edits, onEdit, onClose, onDelete, duplicatePartners = [], onDismissDuplicate, onOpenMerge, onSave, editCount, onOpenMap, bandOptions = [], typeOptions = [], templates = [], languages, settings, draftedAtIso, onDraftCreated, onSent, multiBand = false, entries = [], onSelectEntry, onAddBand, onRemoveBand }) {
+  const [confirmDelete, setConfirmDelete] = useState(false) // false | 'band' | 'venue'
+  const severalBands = multiBand && entries.length > 1
   const rowEdits = edits[rowIndex] || {}
   const effective = { ...row, ...rowEdits }
   const missing = getMissingFields(effective)
@@ -374,6 +416,16 @@ export default function VenueDetailModal({ rowIndex, row, edits, onEdit, onClose
               ))}
             </div>
             <p className="text-xs text-gray-400 dark:text-gray-500">{[effective['City'], effective['Country']].filter(Boolean).join(', ')}</p>
+            {multiBand && (
+              <BandTabs
+                entries={entries}
+                activeIdx={rowIndex}
+                edits={edits}
+                bandOptions={bandOptions}
+                onSelect={idx => { setConfirmDelete(false); onSelectEntry?.(idx) }}
+                onAdd={band => { setConfirmDelete(false); onAddBand?.(band) }}
+              />
+            )}
           </div>
           <button onClick={onClose} className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 text-xl leading-none mt-0.5">&times;</button>
         </div>
@@ -404,17 +456,34 @@ export default function VenueDetailModal({ rowIndex, row, edits, onEdit, onClose
               onOpenMap={onOpenMap}
             />
           )}
-          {SECTIONS.map(section => (
+          {SECTIONS.map(section => {
+            // In multi-band mode the band is chosen with the tabs above, and the
+            // section heading says whose data this is: the venue's (every band)
+            // or the selected band's.
+            const fields = multiBand ? section.fields.filter(f => f.key !== 'Band') : section.fields
+            const shared = fields.every(f => isSharedField(f.key))
+            const mixed = !shared && fields.some(f => isSharedField(f.key))
+            const bandLabel = effective['Band'] || 'no band'
+            return (
             <div key={section.title}>
-              <h3 className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wide mb-3">{section.title}</h3>
+              <h3 className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wide mb-3">
+                {section.title}
+                {severalBands && (
+                  <span className="ml-1.5 normal-case font-normal tracking-normal text-gray-300 dark:text-gray-600">
+                    · {shared ? 'all bands' : mixed ? `${bandLabel} (Time Frame: all bands)` : bandLabel}
+                  </span>
+                )}
+              </h3>
               <div className="grid grid-cols-2 gap-3">
-                {section.fields.map(f => {
+                {fields.map(f => {
                   const Comp = f.type === 'frequency' ? FrequencyField : Field
                   const OPTIONS = { Band: bandOptions, Type: typeOptions }
                   const fieldDef = OPTIONS[f.key] ? { ...f, options: OPTIONS[f.key] } : f
                   return (
                     <Comp
-                      key={f.key}
+                      // Per-band fields remount when the tab changes, so a
+                      // half-typed value never carries over to another band.
+                      key={isSharedField(f.key) ? f.key : `${rowIndex}-${f.key}`}
                       fieldDef={fieldDef}
                       value={effective[f.key] || ''}
                       isEdited={rowEdits[f.key] !== undefined}
@@ -425,24 +494,48 @@ export default function VenueDetailModal({ rowIndex, row, edits, onEdit, onClose
                 })}
               </div>
             </div>
-          ))}
+            )
+          })}
         </div>
 
         <div className="px-6 py-3 border-t border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 shrink-0 flex items-center justify-between gap-3">
           {confirmDelete ? (
             <div className="flex items-center gap-2">
-              <span className="text-xs text-red-700 dark:text-red-400">Delete this venue?</span>
-              <button onClick={() => onDelete(rowIndex)} className="text-xs font-semibold text-red-700 dark:text-red-400 hover:text-red-900 dark:hover:text-red-200">Yes, delete</button>
+              <span className="text-xs text-red-700 dark:text-red-400">
+                {confirmDelete === 'band'
+                  ? `Stop booking this venue for ${effective['Band']}?`
+                  : severalBands ? `Delete this venue for all ${entries.length} bands?` : 'Delete this venue?'}
+              </span>
+              <button
+                onClick={() => {
+                  setConfirmDelete(false)
+                  if (confirmDelete === 'band') onRemoveBand?.()
+                  else onDelete(rowIndex)
+                }}
+                className="text-xs font-semibold text-red-700 dark:text-red-400 hover:text-red-900 dark:hover:text-red-200"
+              >
+                {confirmDelete === 'band' ? 'Yes, remove' : 'Yes, delete'}
+              </button>
               <span className="text-red-300">·</span>
               <button onClick={() => setConfirmDelete(false)} className="text-xs text-red-500 hover:text-red-700 dark:hover:text-red-300">Cancel</button>
             </div>
           ) : (
-            <button
-              onClick={() => setConfirmDelete(true)}
-              className="text-xs text-gray-400 dark:text-gray-500 hover:text-red-600 dark:hover:text-red-400 transition-colors"
-            >
-              Delete venue
-            </button>
+            <div className="flex items-center gap-3">
+              {multiBand && effective['Band'] && (
+                <button
+                  onClick={() => setConfirmDelete('band')}
+                  className="text-xs text-gray-400 dark:text-gray-500 hover:text-red-600 dark:hover:text-red-400 transition-colors whitespace-nowrap"
+                >
+                  Remove from {effective['Band']}
+                </button>
+              )}
+              <button
+                onClick={() => setConfirmDelete('venue')}
+                className="text-xs text-gray-400 dark:text-gray-500 hover:text-red-600 dark:hover:text-red-400 transition-colors whitespace-nowrap"
+              >
+                {severalBands ? 'Delete venue (all bands)' : 'Delete venue'}
+              </button>
+            </div>
           )}
           <div className="flex items-center gap-3">
             <DraftVenueButton

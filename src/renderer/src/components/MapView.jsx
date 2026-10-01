@@ -127,6 +127,9 @@ function ClusteredMarkers({ locations, onVenueClick }) {
   return clusters.map(({ pos, venues }) => {
     const counts = {}
     venues.forEach(v => { counts[v._status] = (counts[v._status] || 0) + 1 })
+    // Multi-band mode lists a venue once per band; name the band on those lines.
+    const perVenue = {}
+    venues.forEach(v => { perVenue[v._venueId] = (perVenue[v._venueId] || 0) + 1 })
     const icon = makeIcon(counts, venues.length)
     const key = `${pos.lat.toFixed(4)},${pos.lng.toFixed(4)}`
 
@@ -147,6 +150,9 @@ function ClusteredMarkers({ locations, onVenueClick }) {
                   >
                     {v['Venue'] || '—'}
                   </button>
+                  {perVenue[v._venueId] > 1 && (
+                    <span style={{ fontSize: 11, color: '#6b7280' }}>{v['Band'] || 'no band'}</span>
+                  )}
                 </div>
               ))}
           </div>

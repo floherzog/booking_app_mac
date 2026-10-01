@@ -7,6 +7,8 @@ import { effectiveTypeOptions } from '@core/venueTypes'
 import { computeNextBatch } from '@core/nextBatch'
 import { replyHealth } from '@core/replyStatus'
 import { computeDuplicates, dismissPair } from '@core/duplicates'
+import { linkVenues, reconcileShared, isMultiBand, isSharedField, SHARED_FIELDS } from '@core/multiBand'
+import { enableMultiBand, disableMultiBand } from './lib/multiBandSwitch'
 import { mergeRules } from '@core/rules'
 import { RulesProvider } from './lib/rulesContext'
 import { getAdapter, isStorageConfigured } from './lib/storageAdapters'
@@ -81,6 +83,7 @@ export default function App() {
 
   const today = useMemo(() => new Date(), [])
   const rules = useMemo(() => mergeRules(settings?.rules), [settings])
+  const multiBand = isMultiBand(settings)
 
   // Single writer for the settings file: persist, then adopt whatever main
   // actually stored (it re-applies defaults and merges the rules).
@@ -103,12 +106,23 @@ export default function App() {
     setError('')
     try {
       const activeRules = mergeRules(s.rules)
-      const { rows: raw } = await a.load()
+      const { rows: raw, missing = [] } = await a.load()
       setMissingFile(null)
-      const classified = raw.map((r, i) => ({ ...r, _idx: i, _status: classifyBooking(r, today, activeRules) }))
+      const multi = isMultiBand(s)
+      const classified = linkVenues(raw.map((r, i) => ({ ...r, _idx: i, _status: classifyBooking(r, today, activeRules) })), multi)
       const nextBatchSet = computeNextBatch(classified, today, activeRules)
       setRows(classified.map(r => ({ ...r, _nextBatch: nextBatchSet.has(r._idx), _missingSeverity: getMissingSeverity(r) })))
-      setEdits({})
+      // Band files that disagree about a venue's shared data (edited outside the
+      // app, or separate rows before the split) are made to agree — staged, like
+      // a mail sync, so nothing reaches the files before Save.
+      const fixes = multi ? reconcileShared(classified) : []
+      const staged = {}
+      for (const f of fixes) staged[f._idx] = { ...staged[f._idx], [f.field]: f.value }
+      setEdits(staged)
+      const notes = []
+      if (missing.length) notes.push(`Missing band file${missing.length !== 1 ? 's' : ''} ${missing.join(', ')} — treated as empty and recreated on the next Save.`)
+      if (fixes.length) notes.push(`${new Set(fixes.map(f => f._idx)).size} band entr${fixes.length !== 1 ? 'ies' : 'y'} had venue details that differed from the same venue's other bands — staged the most recently emailed version for review. Save to apply.`)
+      if (notes.length) setSyncNote(notes.join(' '))
       setDeletions(new Set())
       setAdditions(new Set())
       setLastFetched(new Date())
@@ -220,7 +234,7 @@ export default function App() {
     setSyncing(true)
     if (!silent) setSyncNote('')
     try {
-      const result = await syncFromMail(rowsRef.current)
+      const result = await syncFromMail(rowsRef.current, settings)
       if (result?.error) { setSyncNote(result.error); return }
       const found = result?.edits || []
       found.forEach(e => handleEdit(e._idx, e.field, e.value))
@@ -278,6 +292,22 @@ export default function App() {
   // those values onto that band's venue rows (Dates / filler columns). Applied as
   // normal unsaved edits — they reach the CSV only via the existing Save flow.
   function propagateBandChanges(oldBands, newBands) {
+    // Multi-band mode: a band renamed in place (same position in the list, the
+    // old name gone) is offered to its venues too, and its file follows it —
+    // otherwise its venues would keep the old name and the old file.
+    if (multiBand && oldBands?.length === newBands.length) {
+      const newNames = new Set(newBands.map(b => b.name))
+      newBands.forEach((nb, i) => {
+        const from = oldBands[i]?.name
+        if (!from || !nb.name || from === nb.name || newNames.has(from)) return
+        const matching = rows.filter(r => r['Band'] === from && !deletions.has(r._idx))
+        if (!matching.length) return
+        if (window.confirm(`Rename "${from}" to "${nb.name}" on its ${matching.length} venue(s) too? Its band file keeps its name.`)) {
+          adapter?.renameBand?.(from, nb.name)
+          applyEdits(matching.map(r => [r._idx, 'Band', nb.name]))
+        }
+      })
+    }
     const oldByName = new Map((oldBands || []).map(b => [b.name, b]))
     for (const nb of newBands) {
       const ob = oldByName.get(nb.name)
@@ -313,6 +343,20 @@ export default function App() {
     const a = adapter || getAdapter(settings)
     await a.save([], 'Start a new, empty booking list', { force: true })
     await load()
+  }
+
+  // Settings ▸ General ▸ Multi-band mode. Both directions rewrite files and the
+  // storage settings, so they refuse while there are unsaved edits (the panel
+  // says so) and reload from disk afterwards. Returns the stored settings so the
+  // still-open panel can adopt the new storage section.
+  async function handleSetMultiBand(on) {
+    if (editCount > 0) throw new Error('Save or discard your unsaved changes first.')
+    const storage = on
+      ? await enableMultiBand(settings)
+      : await disableMultiBand(settings, rows)
+    const saved = await persist({ ...settings, storage })
+    await load(saved)
+    return saved
   }
 
   async function handleSettingsSave(form) {
@@ -367,37 +411,60 @@ export default function App() {
   }
 
   function handleEdit(rowIndex, field, value) {
-    // Swapping a venue's band also fills its Dates from that band's touring
-    // text (only when the band has one — never wipe an existing Dates value).
-    let extra = null
-    if (field === 'Band' && value) {
-      const band = (settings?.bands || []).find(b => b.name === value)
-      if (band?.tourDates) extra = { field: 'Dates', value: band.tourDates }
-    }
     // Looked up by _idx, never by position: after a save that deleted rows (or
     // an "add" import) the two drift apart, and comparing against some other
     // row's value silently dropped edits — clearing a field to "" whenever that
     // other row's field happened to be empty, for instance.
     const originalRow = rows.find(r => r._idx === rowIndex)
+    const changes = [[rowIndex, field, value]]
+
+    if (field === 'Band' && value) {
+      // Multi-band mode: a venue has each band at most once. Moving this entry
+      // to a band another of its entries already has would merge two files'
+      // worth of history into one line, so it is refused.
+      if (multiBand && originalRow) {
+        const clash = rows.some(r => r._venueId === originalRow._venueId && r._idx !== rowIndex
+          && !deletions.has(r._idx) && (edits[r._idx]?.['Band'] ?? r['Band']) === value)
+        if (clash) { setError(`${originalRow['Venue'] || 'This venue'} already has ${value}.`); return }
+      }
+      // Swapping a venue's band also fills its Dates from that band's touring
+      // text (only when the band has one — never wipe an existing Dates value).
+      const band = (settings?.bands || []).find(b => b.name === value)
+      if (band?.tourDates) changes.push([rowIndex, 'Dates', band.tourDates])
+    }
+
+    // Raw venue data is the same on every band of a venue, so an edit to it is
+    // an edit to all of the venue's entries.
+    if (multiBand && isSharedField(field) && originalRow) {
+      for (const r of rows) {
+        if (r._venueId === originalRow._venueId && r._idx !== rowIndex) changes.push([r._idx, field, value])
+      }
+    }
+    applyEdits(changes)
+  }
+
+  // [[_idx, field, value], …] → staged edits. A value equal to what was loaded
+  // un-stages that cell instead.
+  function applyEdits(changes) {
+    const byIdx = new Map(rows.map(r => [r._idx, r]))
     setEdits(prev => {
-      const rowEdits = { ...(prev[rowIndex] || {}) }
-      const apply = (f, v) => {
-        const original = originalRow?.[f] ?? ''
-        if (v === original) delete rowEdits[f]
+      const next = { ...prev }
+      for (const [idx, f, v] of changes) {
+        const rowEdits = { ...(next[idx] || {}) }
+        if (v === (byIdx.get(idx)?.[f] ?? '')) delete rowEdits[f]
         else rowEdits[f] = v
+        if (Object.keys(rowEdits).length) next[idx] = rowEdits
+        else delete next[idx]
       }
-      apply(field, value)
-      if (extra) apply(extra.field, extra.value)
-      if (Object.keys(rowEdits).length === 0) {
-        const next = { ...prev }
-        delete next[rowIndex]
-        return next
-      }
-      return { ...prev, [rowIndex]: rowEdits }
+      return next
     })
   }
 
   function handleSaveSuccess(updatedRows) {
+    // A multi-band save may have started a file for a new band; remember it.
+    if (adapter?.kind === 'multiBand' && JSON.stringify(adapter.manifest) !== JSON.stringify(settings.storage.multiBand)) {
+      persist({ ...settings, storage: { ...settings.storage, multiBand: adapter.manifest } }).catch(e => setError(e.message))
+    }
     const reclassified = updatedRows.map(r => ({ ...r, _status: classifyBooking(r, today, rules) }))
     const nextBatchSet = computeNextBatch(reclassified, today, rules)
     setRows(reclassified.map(r => ({ ...r, _nextBatch: nextBatchSet.has(r._idx), _missingSeverity: getMissingSeverity(r) })))
@@ -414,7 +481,8 @@ export default function App() {
     // "Use this file as my CSV from now on": point storage at it and hand Save a
     // fresh adapter for that path, so the very next Save writes the imported
     // table back to the file it came from.
-    if (adoptPath) {
+    // Multi-band mode reads its band files, not one CSV, so there is nothing to adopt.
+    if (adoptPath && !multiBand) {
       setMissingFile(null)
       const saved = await persist({ ...settings, storage: { ...settings.storage, adapter: 'file', filePath: adoptPath } })
       setAdapter(getAdapter(saved))
@@ -425,14 +493,14 @@ export default function App() {
       // `additions` so they show in — and enable — the Save flow.
       const nextIdx = rows.reduce((max, r) => Math.max(max, r._idx), -1) + 1
       const appended = importedRaw.map((r, i) => ({ ...r, _idx: nextIdx + i }))
-      const merged = [...rows, ...appended].map(r => ({ ...r, _status: classifyBooking(r, today, rules) }))
+      const merged = linkVenues([...rows, ...appended], multiBand).map(r => ({ ...r, _status: classifyBooking(r, today, rules) }))
       const nextBatchSet = computeNextBatch(merged, today, rules)
       setRows(merged.map(r => ({ ...r, _nextBatch: nextBatchSet.has(r._idx), _missingSeverity: getMissingSeverity(r) })))
       setAdditions(prev => new Set([...prev, ...appended.map(r => r._idx)]))
       return
     }
     // replace
-    const classified = importedRaw.map((r, i) => ({ ...r, _idx: i, _status: classifyBooking(r, today, rules) }))
+    const classified = linkVenues(importedRaw.map((r, i) => ({ ...r, _idx: i, _status: classifyBooking(r, today, rules) })), multiBand)
     const nextBatchSet = computeNextBatch(classified, today, rules)
     setRows(classified.map(r => ({ ...r, _nextBatch: nextBatchSet.has(r._idx), _missingSeverity: getMissingSeverity(r) })))
     setEdits({})
@@ -440,9 +508,51 @@ export default function App() {
     setAdditions(new Set())
   }
 
+  // The venue, with every band it has.
   function handleDelete(rowIndex) {
-    setDeletions(prev => new Set([...prev, rowIndex]))
+    const row = rows.find(r => r._idx === rowIndex)
+    const all = rows.filter(r => r._venueId === row?._venueId).map(r => r._idx)
+    setDeletions(prev => new Set([...prev, rowIndex, ...all]))
     setVenueDetail(null)
+  }
+
+  // Multi-band mode: book this venue for another band too. A venue that has no
+  // band yet just gets one; otherwise a new entry starts with the venue's shared
+  // data and nothing else. → the _idx to show.
+  function handleAddBand(rowIndex, bandName) {
+    const row = rows.find(r => r._idx === rowIndex)
+    if (!row || !bandName) return rowIndex
+    const effective = { ...row, ...(edits[rowIndex] || {}) }
+    if (!effective['Band']) { handleEdit(rowIndex, 'Band', bandName); return rowIndex }
+    const taken = rows.some(r => r._venueId === row._venueId && !deletions.has(r._idx)
+      && (edits[r._idx]?.['Band'] ?? r['Band']) === bandName)
+    if (taken) return rowIndex
+
+    const newIdx = rows.reduce((max, r) => Math.max(max, r._idx), -1) + 1
+    const band = (settings?.bands || []).find(b => b.name === bandName)
+    const entry = {
+      ...Object.fromEntries(APP_COLUMNS.map(c => [c.key, ''])),
+      ...Object.fromEntries(SHARED_FIELDS.map(f => [f, effective[f] || ''])),
+      Band: bandName,
+      Dates: band?.tourDates || '',
+      _idx: newIdx,
+      _venueId: row._venueId,
+    }
+    const classifiedEntry = { ...entry, _status: classifyBooking(entry, today, rules), _nextBatch: false, _missingSeverity: getMissingSeverity(entry) }
+    setRows(prev => [...prev, classifiedEntry])
+    setAdditions(prev => new Set([...prev, newIdx]))
+    return newIdx
+  }
+
+  // Multi-band mode: stop booking this venue for one band. The venue itself
+  // stays — its last band is cleared rather than deleted, which moves it to the
+  // unassigned file. → the _idx to show next.
+  function handleRemoveBand(rowIndex) {
+    const row = rows.find(r => r._idx === rowIndex)
+    const others = rows.filter(r => r._venueId === row?._venueId && r._idx !== rowIndex && !deletions.has(r._idx))
+    if (!others.length) { handleEdit(rowIndex, 'Band', ''); return rowIndex }
+    setDeletions(prev => new Set([...prev, rowIndex]))
+    return others[0]._idx
   }
 
   // --- Bulk (multi-venue) edit -----------------------------------------------
@@ -499,6 +609,7 @@ export default function App() {
       // full header (the CSV's columns come from its first row).
       ...Object.fromEntries(APP_COLUMNS.map(c => [c.key, ''])),
       _idx: newIdx,
+      _venueId: `new${newIdx}`,
       _status: classifyBooking({}, today, rules),
       _nextBatch: false,
       _missingSeverity: getMissingSeverity({}),
@@ -508,7 +619,19 @@ export default function App() {
   }
 
   const editCount = Object.values(edits).reduce((sum, f) => sum + Object.keys(f).length, 0) + deletions.size + additions.size
-  const { dups: duplicateSet, partners: duplicatePartners } = useMemo(() => computeDuplicates(rows, dismissed), [rows, dismissed])
+  // One entry per venue: a venue's own band entries are the same venue, not
+  // duplicates of each other. Results are keyed by that entry's _idx, so
+  // `venueRep` maps every entry to it.
+  const venueRep = useMemo(() => {
+    const out = new Map()
+    for (const r of rows) if (!out.has(r._venueId)) out.set(r._venueId, r._idx)
+    return out
+  }, [rows])
+  const { dups: duplicateSet, partners: duplicatePartners } = useMemo(
+    () => computeDuplicates(rows.filter(r => venueRep.get(r._venueId) === r._idx), dismissed),
+    [rows, venueRep, dismissed],
+  )
+  const venueCount = venueRep.size
   const bandOptions = useMemo(() => effectiveBandOptions(rows, settings?.bands), [rows, settings])
   const typeOptions = useMemo(() => effectiveTypeOptions(rows, settings?.venueTypes), [rows, settings])
 
@@ -542,9 +665,22 @@ export default function App() {
 
   function handleMerge(keepIdx, deleteIdx, mergedFields) {
     const keepRow = rows.find(r => r._idx === keepIdx)
+    const deleteRow = rows.find(r => r._idx === deleteIdx)
     Object.entries(mergedFields).forEach(([field, value]) => {
       if ((keepRow?.[field] ?? '') !== value) handleEdit(keepIdx, field, value)
     })
+    // Multi-band mode: the merged-away venue's other bands come along — same
+    // venue data as the one kept, and grouped under it from now on.
+    if (multiBand && deleteRow) {
+      const movers = rows.filter(r => r._venueId === deleteRow._venueId && r._idx !== deleteIdx && !deletions.has(r._idx))
+      if (movers.length) {
+        applyEdits(movers.flatMap(r => SHARED_FIELDS
+          .filter(f => f in mergedFields)
+          .map(f => [r._idx, f, mergedFields[f]])))
+        const moving = new Set(movers.map(r => r._idx))
+        setRows(prev => prev.map(r => (moving.has(r._idx) ? { ...r, _venueId: keepRow._venueId } : r)))
+      }
+    }
     setDeletions(prev => new Set([...prev, deleteIdx]))
     setMergeTarget(null)
     setVenueDetail(null)
@@ -557,7 +693,7 @@ export default function App() {
       if (filters.nextBatch && !(r._nextBatch || r['Draft'] === 'TRUE')) return false
       if (filters.autoSend && r['Auto'] !== 'TRUE') return false
       if (filters.missingInfo && getMissingFields(r).length === 0) return false
-      if (filters.duplicate && !duplicateSet.has(r._idx)) return false
+      if (filters.duplicate && !duplicateSet.has(venueRep.get(r._venueId))) return false
       if (filters.actionOnly && !ACTION_STATUSES.has(r._status)) return false
       if (filters.status && r._status !== filters.status) return false
       if (filters.band && r['Band'] !== filters.band) return false
@@ -576,7 +712,9 @@ export default function App() {
       }
       return true
     })
-  }, [rows, filters, deletions, duplicateSet])
+  }, [rows, filters, deletions, duplicateSet, venueRep])
+
+  const filteredVenueCount = useMemo(() => new Set(filteredRows.map(r => r._venueId)).size, [filteredRows])
 
   // Sorting runs through the table itself, so the sorted column stays visible
   // (BookingTable injects it as an extra column when it isn't a default one).
@@ -667,7 +805,7 @@ export default function App() {
           <div>
             {lastFetched && (
               <p className="text-xs text-gray-400 dark:text-gray-500">
-                {rows.length} venues · fetched {lastFetched.toLocaleTimeString()}
+                {venueCount} venues · fetched {lastFetched.toLocaleTimeString()}
               </p>
             )}
           </div>
@@ -772,7 +910,7 @@ export default function App() {
             {view === 'list' && (
               <>
                 <div className="text-xs text-gray-400 dark:text-gray-500 flex items-center gap-3">
-                  <span>Showing {filteredRows.length} of {rows.length} venues</span>
+                  <span>Showing {filteredVenueCount} of {venueCount} venues</span>
                   {editCount > 0 && (
                     <span className="text-amber-600 dark:text-amber-400 font-medium">{editCount} unsaved edit{editCount !== 1 ? 's' : ''}</span>
                   )}
@@ -848,6 +986,8 @@ export default function App() {
           onOpenLogic={() => { setShowSettings(false); setCameFromSettings(true); setShowLogic(true) }}
           onSave={handleSettingsSave}
           onNewCsv={handleNewCsv}
+          onSetMultiBand={handleSetMultiBand}
+          unsavedEdits={editCount}
           onPersist={form => persist({ ...settings, ...form })}
           onClose={() => setShowSettings(false)}
         />
@@ -876,6 +1016,7 @@ export default function App() {
       {showImport && (
         <ImportWizard
           rows={rows}
+          multiBand={multiBand}
           onImport={handleImport}
           onBack={cameFromSettings ? () => { setShowImport(false); setCameFromSettings(false); setShowSettings(true) } : null}
           onClose={() => { setShowImport(false); setCameFromSettings(false) }}
@@ -912,7 +1053,12 @@ export default function App() {
           onDelete={handleDelete}
           onSave={() => setShowSave(true)}
           editCount={editCount}
-          duplicatePartners={duplicatePartners[venueDetail] || []}
+          duplicatePartners={duplicatePartners[venueRep.get(rows.find(r => r._idx === venueDetail)?._venueId)] || []}
+          multiBand={multiBand}
+          entries={rows.filter(r => r._venueId === rows.find(x => x._idx === venueDetail)?._venueId && !deletions.has(r._idx))}
+          onSelectEntry={setVenueDetail}
+          onAddBand={band => setVenueDetail(handleAddBand(venueDetail, band))}
+          onRemoveBand={() => setVenueDetail(handleRemoveBand(venueDetail))}
           onDismissDuplicate={handleDismiss}
           onOpenMerge={handleOpenMerge}
           bandOptions={bandOptions}

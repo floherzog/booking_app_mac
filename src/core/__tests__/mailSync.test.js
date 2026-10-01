@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { normalizeAddress, latestByAddress, buildSyncEdits, scanSince } from '../mailSync.js'
+import { normalizeAddress, latestByAddress, buildSyncEdits, buildMultiBandSyncEdits, scanSince } from '../mailSync.js'
 
 const row = (_idx, Email, extra = {}) => ({ _idx, Email, 'Last emailed': '', Status: '', ...extra })
 const d = (y, m, day) => new Date(y, m - 1, day)
@@ -122,5 +122,35 @@ describe('scanSince', () => {
   })
   it('caps absurd windows at 20 years', () => {
     expect(scanSince(9999, d(2026, 9, 11))).toEqual(d(2006, 9, 11))
+  })
+})
+
+describe('buildMultiBandSyncEdits', () => {
+  const entry = (_idx, Band, accountId, extra = {}) =>
+    ({ _idx, _venueId: 'v1', Email: 'club@venue.de', Band, accountId, 'Last emailed': '', Status: '', ...extra })
+  const sent = (accountId, subject, date) => ({ address: 'club@venue.de', date, subject, accountId })
+
+  it('only counts mail from the band’s own account', () => {
+    const rows = [entry(0, 'Alpha', 'a'), entry(1, 'Beta', 'b')]
+    const edits = buildMultiBandSyncEdits(rows, { sent: [sent('a', 'Anfrage', d(2026, 5, 1))] }, { repliesMode: 'off' })
+    expect(edits).toEqual([{ _idx: 0, field: 'Last emailed', value: '01.05.26', before: '' }])
+  })
+
+  it('tells bands on a shared account apart by the band named in the subject', () => {
+    const rows = [entry(0, 'Alpha', 'a'), entry(1, 'Beta', 'a')]
+    const edits = buildMultiBandSyncEdits(rows, {
+      sent: [sent('a', 'Booking request: Beta', d(2026, 5, 1)), sent('a', 'Alpha tour 2027', d(2026, 4, 1))],
+    }, { repliesMode: 'off' })
+    expect(edits).toContainEqual({ _idx: 0, field: 'Last emailed', value: '01.04.26', before: '' })
+    expect(edits).toContainEqual({ _idx: 1, field: 'Last emailed', value: '01.05.26', before: '' })
+  })
+
+  it('counts a message naming no band (or both) for every band on that account', () => {
+    const rows = [entry(0, 'Alpha', 'a'), entry(1, 'Beta', 'a')]
+    const edits = buildMultiBandSyncEdits(rows, {
+      replies: [{ address: 'club@venue.de', date: d(2026, 6, 2), subject: 'Re: Anfrage', accountId: 'a', autoReply: false }],
+    }, { lastEmailed: 'off' })
+    expect(edits.map(e => e._idx).sort()).toEqual([0, 1])
+    expect(edits.every(e => e.field === 'Status')).toBe(true)
   })
 })

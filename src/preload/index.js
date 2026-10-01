@@ -32,6 +32,11 @@ const api = {
   readCsvFile: path => ipcRenderer.invoke('storage:readCsvFile', path),
   writeCsvFile: args => ipcRenderer.invoke('storage:writeCsvFile', args),
   createCsvFile: path => ipcRenderer.invoke('storage:createCsvFile', path),
+  // Multi-band mode: the band files as one set.
+  readCsvFiles: paths => ipcRenderer.invoke('storage:readCsvFiles', paths),
+  writeCsvFiles: args => ipcRenderer.invoke('storage:writeCsvFiles', args),
+  moveFile: args => ipcRenderer.invoke('storage:moveFile', args),
+  fileExists: path => ipcRenderer.invoke('storage:fileExists', path),
   exportCsv: (text, defaultName) => ipcRenderer.invoke('storage:exportCsv', text, defaultName),
 
   // GitHub storage
