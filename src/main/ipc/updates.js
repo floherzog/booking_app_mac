@@ -26,8 +26,17 @@ export function compareVersions(a, b) {
   return 0
 }
 
+// The release's .dmg for this Mac — "Booking-0.6.0-arm64.dmg" on Apple Silicon,
+// "-x64.dmg" on Intel — so Download fetches the file itself instead of opening
+// the release page to hunt for it. null when the release has no such file.
+export function dmgForArch(assets, arch = process.arch) {
+  const want = arch === 'arm64' ? 'arm64' : 'x64'
+  const dmg = (assets || []).find(a => new RegExp(`-${want}\\.dmg$`, 'i').test(a?.name || ''))
+  return dmg?.browser_download_url || null
+}
+
 // `deps` is injectable so the tests never touch the network.
-export async function checkForUpdates({ currentVersion, fetchImpl = fetch } = {}) {
+export async function checkForUpdates({ currentVersion, fetchImpl = fetch, arch = process.arch } = {}) {
   const current = currentVersion || '0.0.0'
   let res
   try {
@@ -64,6 +73,8 @@ export async function checkForUpdates({ currentVersion, fetchImpl = fetch } = {}
     latest,
     newer: compareVersions(latest, current) > 0,
     url: data?.html_url || RELEASES_PAGE,
+    // The direct file link; the page stays the fallback.
+    downloadUrl: dmgForArch(data?.assets, arch),
     notes: data?.body || '',
     publishedAt: data?.published_at || '',
   }

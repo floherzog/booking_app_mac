@@ -19,6 +19,10 @@ const LAST_EMAILED_MUTE = new Set([
 // Color the "last emailed" countdown relative to the venue's follow-up Frequency:
 // fresh while inside the window, warming up once it's overdue. A confirmed gig or
 // a non-emailing status stays calm.
+// Every colour function here has the same shape, (date, row, rules): RelDate
+// calls them all that way. lastPlayedColor and lastReplyColor once took
+// (date, rules), so the row landed in `rules` and the Last Played field
+// crashed the app as soon as it held a date.
 export function lastEmailedColor(d, row, rules = DEFAULT_RULES) {
   if (row) {
     if (replyHealth(row) === 'gig') return GREEN
@@ -58,7 +62,7 @@ export function followUpColor(d, row, rules = DEFAULT_RULES) {
 
 // Recently played (or an upcoming gig) → too soon to rebook; the older it gets,
 // the greener. Green once it passes the RECENTLY_PLAYED threshold.
-export function lastPlayedColor(d, rules = DEFAULT_RULES) {
+export function lastPlayedColor(d, _row, rules = DEFAULT_RULES) {
   const c = rules.dateColors
   const days = differenceInDays(new Date(), d)
   if (days < c.lastPlayedRedDays) return RED       // recent or upcoming
@@ -67,7 +71,7 @@ export function lastPlayedColor(d, rules = DEFAULT_RULES) {
 }
 
 // A reply is a fresh lead — recent is best, fading to gray as it ages.
-export function lastReplyColor(d, rules = DEFAULT_RULES) {
+export function lastReplyColor(d, _row, rules = DEFAULT_RULES) {
   const c = rules.dateColors
   const days = differenceInDays(new Date(), d)
   if (days <= c.lastReplyGreenDays) return GREEN

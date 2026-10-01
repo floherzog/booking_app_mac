@@ -372,7 +372,9 @@ export default function SettingsPanel({ config, rows = [], onOpenImport, onOpenT
   return (
     // No backdrop click-to-close: settings hold unsaved edits, and losing them to
     // a stray click outside the panel is not a recoverable mistake.
-    <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-[1100] p-4">
+    // Above the venue view (1100) — the menu can open Settings while a venue is
+    // open — and below the pages Settings itself opens (Templates, Import).
+    <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-[1150] p-4">
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-3xl max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 dark:border-gray-700">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Settings</h2>
@@ -518,12 +520,14 @@ export default function SettingsPanel({ config, rows = [], onOpenImport, onOpenT
                               Version <span className="font-mono">{updateState.latest}</span> is available.{' '}
                               <button
                                 type="button"
-                                onClick={() => window.bookingApi.openExternal(updateState.url)}
+                                // The .dmg for this Mac when the release has one: the
+                                // browser downloads it straight away.
+                                onClick={() => window.bookingApi.openExternal(updateState.downloadUrl || updateState.url)}
                                 className="text-indigo-600 dark:text-indigo-400 hover:underline"
                               >
                                 Download it
                               </button>
-                              , then drag it into Applications over the old copy.
+                              {updateState.downloadUrl ? ' (saves the .dmg to Downloads)' : ''}, then drag it into Applications over the old copy.
                             </>
                           ) : 'You are running the latest published version.'}
                       </p>

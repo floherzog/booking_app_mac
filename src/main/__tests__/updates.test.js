@@ -3,7 +3,7 @@ import { describe, it, expect, vi } from 'vitest'
 // The module reaches for electron at import time, so it has to be stubbed.
 vi.mock('electron', () => ({ ipcMain: { handle: () => {} }, app: { getVersion: () => '0.0.0' } }))
 
-const { parseVersion, compareVersions, checkForUpdates } = await import('../ipc/updates.js')
+const { parseVersion, compareVersions, checkForUpdates, dmgForArch } = await import('../ipc/updates.js')
 
 // A stand-in for fetch that never touches the network.
 function jsonResponse(status, body) {
@@ -74,5 +74,33 @@ describe('checkForUpdates', () => {
     const r = await checkForUpdates({ currentVersion: '0.1.0', fetchImpl: jsonResponse(200, { tag_name: 'latest' }) })
     expect(r.error).toMatch(/version tag/i)
     expect(r.newer).toBeUndefined()
+  })
+})
+
+describe('dmgForArch', () => {
+  const assets = [
+    { name: 'Booking-0.6.0-arm64.dmg', browser_download_url: 'https://dl/arm.dmg' },
+    { name: 'Booking-0.6.0-arm64.zip', browser_download_url: 'https://dl/arm.zip' },
+    { name: 'Booking-0.6.0-x64.dmg', browser_download_url: 'https://dl/intel.dmg' },
+  ]
+
+  it('picks the .dmg for this Mac’s architecture, never the zip', () => {
+    expect(dmgForArch(assets, 'arm64')).toBe('https://dl/arm.dmg')
+    expect(dmgForArch(assets, 'x64')).toBe('https://dl/intel.dmg')
+  })
+
+  it('is null when the release has no matching file', () => {
+    expect(dmgForArch([assets[1]], 'arm64')).toBeNull()
+    expect(dmgForArch(undefined, 'arm64')).toBeNull()
+  })
+
+  it('comes back from checkForUpdates as downloadUrl, next to the page url', async () => {
+    const fetchImpl = async () => ({
+      ok: true, status: 200,
+      json: async () => ({ tag_name: 'v9.0.0', html_url: 'https://page', assets }),
+    })
+    const r = await checkForUpdates({ currentVersion: '0.6.0', fetchImpl, arch: 'x64' })
+    expect(r.downloadUrl).toBe('https://dl/intel.dmg')
+    expect(r.url).toBe('https://page')
   })
 })

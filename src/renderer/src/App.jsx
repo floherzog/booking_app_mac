@@ -32,6 +32,7 @@ import VenueDetailModal from './components/VenueDetailModal'
 import MergeModal from './components/MergeModal'
 import BulkEditBar from './components/BulkEditBar'
 import { useInlinePrompt } from './components/InlinePrompt'
+import ErrorBoundary from './components/ErrorBoundary'
 
 const SEARCH_FIELDS = ['Venue', 'City', 'Country', 'Contact', 'Band', 'Email', 'Note', 'Status', 'Text', 'Time Frame', 'Dates']
 
@@ -1044,6 +1045,21 @@ export default function App() {
         />
       )}
       {venueDetail !== null && rows.find(r => r._idx === venueDetail) && (
+        // A crash inside the dialog closes only the dialog: the table and every
+        // unsaved edit stay. Keyed by venue so opening another one starts clean.
+        <ErrorBoundary
+          key={venueDetail}
+          fallback={({ error }) => (
+            <div className="fixed inset-0 bg-black/40 flex items-center justify-end z-[1100]" onClick={() => setVenueDetail(null)}>
+              <div className="bg-white dark:bg-gray-800 h-full w-full max-w-2xl shadow-2xl p-6 space-y-3" onClick={e => e.stopPropagation()}>
+                <p className="font-semibold text-red-700 dark:text-red-400">This venue view ran into an error.</p>
+                <p className="font-mono text-xs break-words bg-red-50 dark:bg-red-900/20 rounded p-2 text-red-700 dark:text-red-300">{String(error?.message || error)}</p>
+                <p className="text-sm text-gray-600 dark:text-gray-300">Your unsaved edits are still there — close this and Save as usual.</p>
+                <button onClick={() => setVenueDetail(null)} className="bg-indigo-600 text-white text-sm font-medium px-4 py-2 rounded-md hover:bg-indigo-700">Close</button>
+              </div>
+            </div>
+          )}
+        >
         <VenueDetailModal
           rowIndex={venueDetail}
           row={rows.find(r => r._idx === venueDetail)}
@@ -1077,6 +1093,7 @@ export default function App() {
             setView('map')
           }}
         />
+        </ErrorBoundary>
       )}
     </div>
     </RulesProvider>

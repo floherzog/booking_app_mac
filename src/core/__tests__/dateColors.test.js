@@ -58,7 +58,11 @@ describe('lastPlayedColor / lastReplyColor', () => {
     expect(lastPlayedColor(daysAgo(30))).toBe('text-red-500')
     expect(lastPlayedColor(daysAgo(200))).toBe('text-orange-500')
     expect(lastPlayedColor(daysAgo(400))).toBe('text-green-500')
-    expect(lastPlayedColor(daysAgo(200), mergeRules({ dateColors: { lastPlayedRedDays: 300 } }))).toBe('text-red-500')
+    expect(lastPlayedColor(daysAgo(200), null, mergeRules({ dateColors: { lastPlayedRedDays: 300 } }))).toBe('text-red-500')
+    // Called the way RelDate calls every colour function — (date, row, rules).
+    // A row in the second slot used to be read as the rules and threw.
+    expect(lastPlayedColor(daysAgo(30), { Venue: 'X', 'Last played': '01.01.26' })).toBe('text-red-500')
+    expect(lastReplyColor(daysAgo(60), { Venue: 'X' }, mergeRules({ dateColors: { lastReplyGreenDays: 90, lastReplyLimeDays: 120 } }))).toBe('text-green-500')
 
     expect(lastReplyColor(daysAgo(10))).toBe('text-green-500')
     expect(lastReplyColor(daysAgo(60))).toBe('text-lime-500')

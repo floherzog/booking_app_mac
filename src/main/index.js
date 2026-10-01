@@ -72,12 +72,14 @@ async function promptForUpdate({ preloaded = null } = {}) {
     // Note the install steps rather than assume they are remembered: macOS 15
     // removed the right-click → Open bypass, so Privacy & Security is now the
     // only way past the "could not verify" block an unnotarised app gets.
-    detail: `You are running ${result.current}.\n\nDownload the .dmg, drag it to Applications and replace the old copy.\n\nThe first launch is blocked with "Apple could not verify…" — open System Settings → Privacy & Security and press "Open Anyway".${result.notes ? `\n\n${String(result.notes).slice(0, 600)}` : ''}`,
+    detail: `You are running ${result.current}.\n\n${result.downloadUrl ? 'Download saves the .dmg to your Downloads folder. Open it' : 'Download the .dmg'}, drag Booking to Applications and replace the old copy.\n\nThe first launch is blocked with "Apple could not verify…" — open System Settings → Privacy & Security and press "Open Anyway".${result.notes ? `\n\n${String(result.notes).slice(0, 600)}` : ''}`,
     buttons: ['Download', 'Later'],
     defaultId: 0,
     cancelId: 1,
   })
-  if (response === 0) shell.openExternal(result.url)
+  // The .dmg itself when the release has one for this Mac — the browser saves
+  // it straight away — otherwise the release page.
+  if (response === 0) shell.openExternal(result.downloadUrl || result.url)
 }
 
 // Settings ▸ General can have the app look for a release on its own. It stays
