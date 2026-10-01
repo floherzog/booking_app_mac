@@ -28,7 +28,7 @@ const SECTIONS = [
   { id: 'mail', label: 'Mail settings' },
 ]
 
-export default function SettingsPanel({ config, rows = [], onOpenImport, onOpenTemplates, onOpenLogic, onSave, onPersist, onClose }) {
+export default function SettingsPanel({ config, rows = [], onOpenImport, onOpenTemplates, onOpenLogic, onSave, onNewCsv, onPersist, onClose }) {
   const [form, setForm] = useState(config)
   const [section, setSection] = useState('general')
   // Theme stays a per-Mac preference in localStorage (see the note in the
@@ -50,6 +50,11 @@ export default function SettingsPanel({ config, rows = [], onOpenImport, onOpenT
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const [savedAt, setSavedAt] = useState(0)
+  // "Start a new, empty CSV" asks twice: 0 = not asked, 1 = first "are you
+  // sure", 2 = the last one. `wiped` confirms it afterwards.
+  const [wipeStep, setWipeStep] = useState(0)
+  const [wiping, setWiping] = useState(false)
+  const [wiped, setWiped] = useState(false)
 
   // The "Saved" confirmation is the only feedback now that Save no longer
   // closes the panel, so it has to fade on its own.
@@ -69,6 +74,7 @@ export default function SettingsPanel({ config, rows = [], onOpenImport, onOpenT
   const sync = mail.sync || {}
   const accounts = normalizeAccounts(mail)
   const ruleErrors = validateRules(form.rules)
+  const storageDirty = JSON.stringify(form.storage) !== JSON.stringify(config.storage)
   // Cheap and good enough: the form is a few kB of plain JSON, and this only
   // drives the footer label.
   const dirty = JSON.stringify(form) !== JSON.stringify(config)
@@ -202,12 +208,17 @@ export default function SettingsPanel({ config, rows = [], onOpenImport, onOpenT
       await onPersist(form)
 
       if (kind === 'imap') {
-        const { mailboxes: boxes, suggestion } = await window.bookingApi.testMailConnection(id)
+        const { mailboxes: boxes, suggestion, sentSuggestion } = await window.bookingApi.testMailConnection(id)
         const account = normalizeAccounts(form.mail).find(a => a.id === id)
         if (!account?.draftsMailbox && suggestion) setAccount(id, { draftsMailbox: suggestion })
+        if (!account?.sentMailbox && sentSuggestion) setAccount(id, { sentMailbox: sentSuggestion })
+        const sent = account?.sentMailbox || sentSuggestion
         setAccountTests(t => ({
           ...t,
-          [id]: { ok: true, message: `Connected — ${boxes.length} mailboxes. Drafts: ${account?.draftsMailbox || suggestion}` },
+          [id]: {
+            ok: true,
+            message: `Connected — ${boxes.length} mailboxes. Drafts: ${account?.draftsMailbox || suggestion}. Sent: ${sent || 'not found — name it above, or sent mail is not copied there'}`,
+          },
         }))
         return
       }
@@ -241,6 +252,20 @@ export default function SettingsPanel({ config, rows = [], onOpenImport, onOpenT
 
   function handleExport() {
     exportCsv(rows).catch(() => { /* the user cancelled the save dialog */ })
+  }
+
+  async function handleWipe() {
+    setWiping(true)
+    setError('')
+    try {
+      await onNewCsv?.()
+      setWiped(true)
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setWiping(false)
+      setWipeStep(0)
+    }
   }
 
   // --- Band list -------------------------------------------------------------
@@ -534,6 +559,52 @@ export default function SettingsPanel({ config, rows = [], onOpenImport, onOpenT
                       Export writes a copy wherever you point it. Import opens a guided wizard — replace the table
                       or add to it, and match your file's columns to the app's. Changes stay in the app until you
                       press Save.
+                    </p>
+                  </div>
+
+                  <div className="pt-4 border-t border-gray-100 dark:border-gray-700">
+                    <p className={lbl}>Start over</p>
+                    {wipeStep === 0 ? (
+                      <button
+                        type="button"
+                        onClick={() => { setWiped(false); setWipeStep(1) }}
+                        // It empties the CSV the app has open — not a path typed
+                        // here and not saved yet.
+                        disabled={storageDirty}
+                        className="disabled:opacity-40 py-1.5 px-3 rounded-md text-sm font-medium border border-red-300 dark:border-red-800 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                      >
+                        New, empty CSV…
+                      </button>
+                    ) : (
+                      <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md p-3 space-y-2">
+                        <p className="text-sm font-semibold text-red-700 dark:text-red-400">
+                          {wipeStep === 1 ? 'ARE YOU SURE?' : 'ARE YOU REALLY SURE? This cannot be undone.'}
+                        </p>
+                        <p className="text-xs text-red-700 dark:text-red-400">
+                          {wipeStep === 1
+                            ? <>All {rows.length} venue{rows.length !== 1 ? 's' : ''} will be removed from your booking CSV, along with any unsaved edits. Only the column headers stay. Export a copy first if you might want them back.</>
+                            : <>Your booking CSV is overwritten right now — not staged for Save. There is no undo.</>}
+                        </p>
+                        <div className="flex gap-2">
+                          {wipeStep === 1 ? (
+                            <button type="button" onClick={() => setWipeStep(2)} className="bg-red-600 text-white text-sm font-medium px-3 py-1.5 rounded-md hover:bg-red-700 transition-colors">
+                              Yes, continue
+                            </button>
+                          ) : (
+                            <button type="button" onClick={handleWipe} disabled={wiping} className="bg-red-700 text-white text-sm font-medium px-3 py-1.5 rounded-md hover:bg-red-800 transition-colors disabled:opacity-50">
+                              {wiping ? 'Emptying…' : 'Yes, empty it for good'}
+                            </button>
+                          )}
+                          <button type="button" onClick={() => setWipeStep(0)} disabled={wiping} className={outlineBtn}>Cancel</button>
+                        </div>
+                      </div>
+                    )}
+                    <p className="mt-2 text-xs text-gray-400 dark:text-gray-500">
+                      {storageDirty
+                        ? 'Save the storage change first — this empties the CSV the app currently has open.'
+                        : wiped
+                        ? 'Done — the list is empty. Add venues with + New Venue, or import a CSV.'
+                        : 'Empties the CSV above so you can start from a blank list. Settings, bands and templates are kept.'}
                     </p>
                   </div>
                 </div>

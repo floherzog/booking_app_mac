@@ -106,7 +106,7 @@ export default function StatsBar({ rows, activeStatus, onStatusClick, actionOnly
                 : 'bg-transparent text-teal-600 border-teal-300 hover:border-teal-400 hover:bg-teal-50 dark:text-teal-400 dark:border-teal-800 dark:hover:border-teal-600 dark:hover:bg-teal-900/20'
               }`}
           >
-            Auto send
+            Auto-send
             <span className="font-bold text-xs">{autoSendCount}</span>
           </button>
         )}

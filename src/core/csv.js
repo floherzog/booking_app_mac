@@ -1,4 +1,5 @@
 import Papa from 'papaparse'
+import { APP_COLUMNS } from './constants.js'
 
 // Columns the app manages but the source CSV may not have yet. Every row must
 // carry these keys so Papa.unparse (which derives columns from the first row)
@@ -51,5 +52,9 @@ export function serializeCsv(rows) {
   const clean = rows.map(r =>
     Object.fromEntries(Object.entries(r).filter(([k]) => !k.startsWith('_')))
   )
+  // With no rows Papa has nothing to take column names from and writes an empty
+  // file. Keep the canonical header instead, so an emptied list is still a
+  // booking CSV that every reader (and the import check) recognises.
+  if (clean.length === 0) return `${APP_COLUMNS.map(c => c.key).join(';')}\n`
   return Papa.unparse(clean, { delimiter: ';', newline: '\n' })
 }

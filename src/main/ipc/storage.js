@@ -51,7 +51,15 @@ export function registerStorageIpc() {
 
   // → { text, mtimeMs }. mtimeMs is the conflict-guard token handed back on save.
   ipcMain.handle('storage:readCsvFile', async (_e, path) => {
-    const text = await readFile(path, 'utf8')
+    let text
+    try {
+      text = await readFile(path, 'utf8')
+    } catch (e) {
+      // Code in the message for the same reason as CSV_CONFLICT below: the
+      // renderer offers to recreate or replace the file instead of a raw ENOENT.
+      if (e.code === 'ENOENT') throw new Error(`CSV_MISSING: ${path} no longer exists.`)
+      throw e
+    }
     return { text, mtimeMs: await mtimeOf(path) }
   })
 

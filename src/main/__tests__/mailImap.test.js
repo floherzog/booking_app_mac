@@ -7,7 +7,7 @@ import { join } from 'node:path'
 vi.mock('electron', () => ({ ipcMain: { handle: () => {} } }))
 vi.mock('imapflow', () => ({ ImapFlow: class {} }))
 
-const { resolveDraftsMailbox, friendlyMailError, testConnectionWith, appendDraftWith } =
+const { resolveDraftsMailbox, resolveSentMailbox, friendlyMailError, testConnectionWith, appendDraftWith } =
   await import('../ipc/mailImap.js')
 
 const PNG = Buffer.from(
@@ -68,6 +68,42 @@ describe('resolveDraftsMailbox', () => {
   it('falls back to the conventional name when nothing matches', () => {
     expect(resolveDraftsMailbox([{ path: 'INBOX', specialUse: '' }], '')).toBe('Drafts')
     expect(resolveDraftsMailbox([], '')).toBe('Drafts')
+  })
+})
+
+describe('mailboxes on servers without SPECIAL-USE', () => {
+  // cPanel/Plesk-style hosting: everything nested under INBOX, no flags.
+  const HOSTED = [
+    { path: 'INBOX', specialUse: '' },
+    { path: 'INBOX.Drafts', specialUse: '' },
+    { path: 'INBOX.Sent', specialUse: '' },
+    { path: 'INBOX.Trash', specialUse: '' },
+  ]
+  const GERMAN = [
+    { path: 'INBOX', specialUse: '' },
+    { path: 'Entwürfe', specialUse: '' },
+    { path: 'Gesendete Objekte', specialUse: '' },
+  ]
+
+  it('finds Sent and Drafts nested under INBOX', () => {
+    expect(resolveSentMailbox(HOSTED, '')).toBe('INBOX.Sent')
+    expect(resolveDraftsMailbox(HOSTED, '')).toBe('INBOX.Drafts')
+    expect(resolveSentMailbox([{ path: 'INBOX/Sent Items', specialUse: '' }], '')).toBe('INBOX/Sent Items')
+  })
+
+  it('finds the German names', () => {
+    expect(resolveSentMailbox(GERMAN, '')).toBe('Gesendete Objekte')
+    expect(resolveDraftsMailbox(GERMAN, '')).toBe('Entwürfe')
+  })
+
+  it('still prefers SPECIAL-USE and what the user configured', () => {
+    expect(resolveSentMailbox(ICLOUD_MAILBOXES, '')).toBe('Sent Messages')
+    expect(resolveSentMailbox(HOSTED, 'INBOX.Gesendet')).toBe('INBOX.Gesendet')
+  })
+
+  it('suggests a Sent mailbox only when the server really has one', async () => {
+    expect((await testConnectionWith(fakeClient(HOSTED), SETTINGS)).sentSuggestion).toBe('INBOX.Sent')
+    expect((await testConnectionWith(fakeClient([{ path: 'INBOX', specialUse: '' }]), SETTINGS)).sentSuggestion).toBe('')
   })
 })
 

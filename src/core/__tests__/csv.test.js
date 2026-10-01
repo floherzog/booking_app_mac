@@ -17,6 +17,12 @@ const FIXTURE = [
 ].join('\n')
 
 describe('CSV contract (interchange format with the webapp + OpenClaw)', () => {
+  it('keeps the header row when there are no venues at all', async () => {
+    const out = serializeCsv([])
+    expect(out).toBe(`${APP_COLUMNS.map(c => c.key).join(';')}\n`)
+    expect(await parseCsvText(out)).toEqual([])
+  })
+
   it('round-trips all 22 columns byte-for-byte', async () => {
     const rows = await parseCsvText(FIXTURE)
     expect(rows).toHaveLength(2)

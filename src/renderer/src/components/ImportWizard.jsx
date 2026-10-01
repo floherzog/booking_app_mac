@@ -80,7 +80,9 @@ export default function ImportWizard({ rows = [], onImport, onBack, onClose, pre
   const nMapped = mappedCount(mapping)
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[1300] p-4" onClick={onClose}>
+    // No backdrop click-to-close, same as Settings: this page holds work in
+    // progress, and a stray click outside it must not throw that away.
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[1300] p-4">
       <div
         className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col"
         onClick={e => e.stopPropagation()}

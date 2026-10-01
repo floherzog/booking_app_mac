@@ -4,7 +4,9 @@ import { looksLikeAppCsv } from '@core/importMap'
 
 // Shown until a storage adapter is configured: pick an existing CSV, create a
 // fresh one with just the canonical header row, or point at a GitHub repo.
-export default function FirstRun({ settings, onConfigured, onNeedsMapping }) {
+// Also shown when the configured file has gone missing (`missingPath` set), with
+// one more choice: put an empty file back where the old one was.
+export default function FirstRun({ settings, missingPath = null, onConfigured, onNeedsMapping }) {
   const [mode, setMode] = useState('file')
   const [repo, setRepo] = useState(settings?.storage?.github?.repo || '')
   const [path, setPath] = useState(settings?.storage?.github?.path || '')
@@ -51,6 +53,13 @@ export default function FirstRun({ settings, onConfigured, onNeedsMapping }) {
     })
   }
 
+  function recreate() {
+    return run(async () => {
+      await window.bookingApi.createCsvFile(missingPath)
+      await onConfigured({ adapter: 'file', filePath: missingPath })
+    })
+  }
+
   function connectGithub() {
     return run(async () => {
       if (!repo.trim() || !path.trim()) throw new Error('Enter both a repository and a file path.')
@@ -73,6 +82,21 @@ export default function FirstRun({ settings, onConfigured, onNeedsMapping }) {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center p-6 transition-colors">
       <div className="w-full max-w-lg bg-white dark:bg-gray-800 rounded-xl shadow-xl p-8 space-y-6">
+        {missingPath !== null && (
+          <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-md p-3 space-y-2">
+            <p className="text-sm text-amber-800 dark:text-amber-300 font-medium">Your booking file is gone.</p>
+            <p className="text-xs text-amber-700 dark:text-amber-400 break-all">
+              Nothing is at <span className="font-mono">{missingPath || '(no path)'}</span> any more — it was
+              deleted, moved or renamed. Start an empty list in the same place, or choose where it is now.
+            </p>
+            {missingPath && (
+              <button onClick={recreate} disabled={busy} className="bg-amber-600 text-white text-sm font-medium px-3 py-1.5 rounded-md hover:bg-amber-700 transition-colors disabled:opacity-50">
+                Create an empty one there
+              </button>
+            )}
+          </div>
+        )}
+
         <div>
           <h1 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Where is your booking list?</h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">

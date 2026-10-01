@@ -230,12 +230,12 @@ const COLUMNS = [
         <div className="flex flex-col gap-1 items-start">
           <DraftAction row={{ ...row, ...(edits[row._idx] || {}) }} meta={i.table.options.meta} />
           <FlagPill
-            label="Draft" active={draft}
+            label="Auto-draft" active={draft}
             activeClass="bg-emerald-500 text-white border-emerald-500"
             onToggle={() => onEdit(row._idx, 'Draft', draft ? '' : 'TRUE')}
           />
           <FlagPill
-            label="Auto" active={auto}
+            label="Auto-send" active={auto}
             activeClass="bg-teal-500 text-white border-teal-500"
             onToggle={() => onEdit(row._idx, 'Auto', auto ? '' : 'TRUE')}
           />
@@ -522,12 +522,12 @@ function MobileCard({ row, edits, onVenueClick, onEdit }) {
       )}
       <div className="mt-1.5 flex gap-1.5">
         <FlagPill
-          label="Draft" active={draftNext}
+          label="Auto-draft" active={draftNext}
           activeClass="bg-emerald-500 text-white border-emerald-500"
           onToggle={() => onEdit(r._idx, 'Draft', draftNext ? '' : 'TRUE')}
         />
         <FlagPill
-          label="Auto" active={autoSend}
+          label="Auto-send" active={autoSend}
           activeClass="bg-teal-500 text-white border-teal-500"
           onToggle={() => onEdit(r._idx, 'Auto', autoSend ? '' : 'TRUE')}
         />

@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { classifyBooking } from '@core/classify'
 import { getSettings, saveSettings } from './lib/config'
-import { ACTION_STATUSES, getMissingFields, getMissingSeverity } from '@core/constants'
+import { ACTION_STATUSES, APP_COLUMNS, getMissingFields, getMissingSeverity } from '@core/constants'
 import { effectiveBandOptions, bandsFromRows, normalizeBands } from '@core/bands'
 import { effectiveTypeOptions } from '@core/venueTypes'
 import { computeNextBatch } from '@core/nextBatch'
@@ -40,6 +40,9 @@ export default function App() {
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  // The configured CSV file is gone (deleted, moved, renamed). Set to its path,
+  // which sends the user back to the first-run screen to recreate or replace it.
+  const [missingFile, setMissingFile] = useState(null)
   const [lastFetched, setLastFetched] = useState(null)
   const [showSettings, setShowSettings] = useState(false)
   const [promptNode, ask] = useInlinePrompt()
@@ -101,6 +104,7 @@ export default function App() {
     try {
       const activeRules = mergeRules(s.rules)
       const { rows: raw } = await a.load()
+      setMissingFile(null)
       const classified = raw.map((r, i) => ({ ...r, _idx: i, _status: classifyBooking(r, today, activeRules) }))
       const nextBatchSet = computeNextBatch(classified, today, activeRules)
       setRows(classified.map(r => ({ ...r, _nextBatch: nextBatchSet.has(r._idx), _missingSeverity: getMissingSeverity(r) })))
@@ -114,7 +118,13 @@ export default function App() {
         if (seeded.length) await persist({ ...s, bands: seeded })
       }
     } catch (e) {
-      setError(e.message)
+      if (/CSV_MISSING/.test(e.message)) {
+        setMissingFile(s.storage?.filePath || '')
+        setRows([])
+        setLastFetched(null)
+      } else {
+        setError(e.message)
+      }
     } finally {
       setLoading(false)
     }
@@ -296,6 +306,15 @@ export default function App() {
     await persist({ ...settings, rules: nextRules })
   }
 
+  // Settings ▸ Data & storage ▸ "Start a new, empty CSV". The panel has already
+  // asked twice; this overwrites the configured CSV with just the header row
+  // and throws away every unsaved edit along with the venues.
+  async function handleNewCsv() {
+    const a = adapter || getAdapter(settings)
+    await a.save([], 'Start a new, empty booking list', { force: true })
+    await load()
+  }
+
   async function handleSettingsSave(form) {
     const bands = normalizeBands(form.bands)
     propagateBandChanges(settings.bands, bands)
@@ -355,10 +374,15 @@ export default function App() {
       const band = (settings?.bands || []).find(b => b.name === value)
       if (band?.tourDates) extra = { field: 'Dates', value: band.tourDates }
     }
+    // Looked up by _idx, never by position: after a save that deleted rows (or
+    // an "add" import) the two drift apart, and comparing against some other
+    // row's value silently dropped edits — clearing a field to "" whenever that
+    // other row's field happened to be empty, for instance.
+    const originalRow = rows.find(r => r._idx === rowIndex)
     setEdits(prev => {
       const rowEdits = { ...(prev[rowIndex] || {}) }
       const apply = (f, v) => {
-        const original = rows[rowIndex]?.[f] ?? ''
+        const original = originalRow?.[f] ?? ''
         if (v === original) delete rowEdits[f]
         else rowEdits[f] = v
       }
@@ -391,6 +415,7 @@ export default function App() {
     // fresh adapter for that path, so the very next Save writes the imported
     // table back to the file it came from.
     if (adoptPath) {
+      setMissingFile(null)
       const saved = await persist({ ...settings, storage: { ...settings.storage, adapter: 'file', filePath: adoptPath } })
       setAdapter(getAdapter(saved))
     }
@@ -466,12 +491,14 @@ export default function App() {
   }
 
   function handleNewVenue() {
-    const newIdx = rows.length
+    // Past the highest _idx, not rows.length: indices have gaps after deletions,
+    // and reusing one would make two rows share their edits.
+    const newIdx = rows.reduce((max, r) => Math.max(max, r._idx), -1) + 1
     const emptyRow = {
-      _idx: newIdx, Venue: '', Band: '', City: '', Country: '', Email: '',
-      Contact: '', Website: '', Type: '', Note: '', Status: '',
-      'Last emailed': '', 'Follow Up Date': '', 'Last played': '',
-      'Time Frame': '', Dates: '', Text: '', Draft: '', Auto: '', frequency: '',
+      // Every app column, so a venue added to an empty CSV still writes the
+      // full header (the CSV's columns come from its first row).
+      ...Object.fromEntries(APP_COLUMNS.map(c => [c.key, ''])),
+      _idx: newIdx,
       _status: classifyBooking({}, today, rules),
       _nextBatch: false,
       _missingSeverity: getMissingSeverity({}),
@@ -562,12 +589,14 @@ export default function App() {
   // Settings haven't arrived yet — nothing sensible to draw.
   if (!settings) return <div className="min-h-screen bg-gray-50 dark:bg-gray-900" />
 
-  // No storage configured yet: point the user at a CSV before anything else.
-  if (!isStorageConfigured(settings)) {
+  // No storage configured yet, or the configured file has disappeared: point
+  // the user at a CSV before anything else.
+  if (!isStorageConfigured(settings) || missingFile !== null) {
     return (
       <>
         <FirstRun
           settings={settings}
+          missingPath={missingFile}
           onConfigured={async storage => {
             const saved = await persist({ ...settings, storage: { ...settings.storage, ...storage } })
             await load(saved)
@@ -688,11 +717,13 @@ export default function App() {
         )}
 
         {/* Mobile controls when no data yet */}
-        {rows.length === 0 && !loading && (
+        {rows.length === 0 && !loading && !lastFetched && (
           <div className="sm:hidden flex justify-end">{mobileControls}</div>
         )}
 
-        {rows.length > 0 && (
+        {/* An empty CSV is a perfectly good list — it needs the toolbar most of
+            all, since "+ New Venue" lives there. */}
+        {(rows.length > 0 || (lastFetched && !loading)) && (
           <>
             {/* Mobile: chips + vertical controls sidebar */}
             <div className="sm:hidden flex gap-2 items-start">
@@ -753,6 +784,12 @@ export default function App() {
                     {selectMode ? `Done${selected.size ? ` (${selected.size})` : ''}` : 'Select'}
                   </button>
                 </div>
+                {rows.length === 0 ? (
+                  <div className="text-sm text-gray-400 dark:text-gray-500 py-12 text-center">
+                    No venues yet — add one with <span className="font-medium">+ New Venue</span>, or bring
+                    a list in through Settings ▸ Data &amp; storage ▸ Import CSV.
+                  </div>
+                ) : (
                 <BookingTable
                   rows={filteredRows}
                   edits={edits}
@@ -774,6 +811,7 @@ export default function App() {
                   draftingIdx={draftingIdx}
                   draftResults={draftResults}
                 />
+                )}
               </>
             )}
             {view === 'map' && (
@@ -809,6 +847,7 @@ export default function App() {
           onOpenTemplates={() => { setShowSettings(false); setCameFromSettings(true); setShowTemplates(true) }}
           onOpenLogic={() => { setShowSettings(false); setCameFromSettings(true); setShowLogic(true) }}
           onSave={handleSettingsSave}
+          onNewCsv={handleNewCsv}
           onPersist={form => persist({ ...settings, ...form })}
           onClose={() => setShowSettings(false)}
         />
@@ -856,6 +895,7 @@ export default function App() {
       {showLogic && (
         <LogicModal
           onSaveRules={handleRulesSave}
+          fromSettings={cameFromSettings}
           onClose={() => {
             setShowLogic(false)
             if (cameFromSettings) { setCameFromSettings(false); setShowSettings(true) }

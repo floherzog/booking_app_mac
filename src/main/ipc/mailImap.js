@@ -42,8 +42,33 @@ export function resolveDraftsMailbox(mailboxes, configured) {
   if (configured) return configured
   const special = (mailboxes || []).find(m => m.specialUse === '\\Drafts')
   if (special) return special.path
-  const named = (mailboxes || []).find(m => (m.path || '').toLowerCase() === 'drafts')
+  const named = findByLeafName(mailboxes, DRAFTS_NAMES)
   return named ? named.path : 'Drafts'
+}
+
+// What servers without SPECIAL-USE call these folders. Many hosting providers
+// (cPanel, Plesk, older Dovecot setups) nest everything under INBOX with "." or
+// "/" as the separator, and German ones localise the name — so "INBOX.Sent" and
+// "Gesendete Objekte" are as common as plain "Sent".
+const DRAFTS_NAMES = ['drafts', 'draft', 'entwürfe', 'entwurf', 'brouillons']
+const SENT_NAMES = [
+  'sent', 'sent messages', 'sent items', 'sent mail',
+  'gesendet', 'gesendete objekte', 'gesendete elemente', 'gesendete nachrichten',
+  'envoyés', 'éléments envoyés',
+]
+
+function leafName(path) {
+  return String(path || '').split(/[./]/).pop().trim().toLowerCase()
+}
+
+// Earlier names in the list win, so "Sent" beats "Sent Items" when both exist.
+function findByLeafName(mailboxes, names) {
+  const list = mailboxes || []
+  for (const name of names) {
+    const hit = list.find(m => leafName(m.path) === name)
+    if (hit) return hit
+  }
+  return null
 }
 
 function mailboxSummary(list) {
@@ -56,7 +81,13 @@ function mailboxSummary(list) {
 
 export async function testConnectionWith(client, account) {
   const mailboxes = mailboxSummary(await client.list())
-  return { mailboxes, suggestion: resolveDraftsMailbox(mailboxes, account?.draftsMailbox) }
+  const sent = resolveSentMailbox(mailboxes, account?.sentMailbox)
+  return {
+    mailboxes,
+    suggestion: resolveDraftsMailbox(mailboxes, account?.draftsMailbox),
+    // Only a folder that really exists is worth preselecting.
+    sentSuggestion: mailboxes.some(m => m.path === sent) ? sent : '',
+  }
 }
 
 // The account a payload is addressed from. Every mail operation carries an
@@ -147,13 +178,19 @@ export function resolveSentMailbox(mailboxes, configured) {
   if (configured) return configured
   const special = (mailboxes || []).find(m => m.specialUse === '\\Sent')
   if (special) return special.path
-  const named = (mailboxes || []).find(m => ['sent', 'sent messages', 'sent items'].includes((m.path || '').toLowerCase()))
+  const named = findByLeafName(mailboxes, SENT_NAMES)
   return named ? named.path : 'Sent Messages'
 }
 
 export async function appendToSent(mime, accountId) {
   return withImapClient(accountFor(accountId), async (client, account) => {
-    const mailbox = resolveSentMailbox(mailboxSummary(await client.list()), account.sentMailbox)
+    const mailboxes = mailboxSummary(await client.list())
+    const mailbox = resolveSentMailbox(mailboxes, account.sentMailbox)
+    // Never file into a folder the server does not have. Some servers create it
+    // on APPEND, which left the copy in a stray "Sent Messages" folder next to
+    // the real one. Without a match the copy is skipped — the mail is sent
+    // either way, and the Sent mailbox can be named in Settings.
+    if (!mailboxes.some(m => m.path === mailbox)) return { mailbox: null, uid: null }
     const res = await client.append(mailbox, mime, ['\\Seen'])
     return { mailbox, uid: res?.uid ?? null }
   })
