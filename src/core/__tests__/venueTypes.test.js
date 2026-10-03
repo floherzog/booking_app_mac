@@ -21,7 +21,7 @@ describe('effectiveTypeOptions', () => {
 
   it('unions the managed list with what the rows already use', () => {
     expect(effectiveTypeOptions(rows, DEFAULT_VENUE_TYPES))
-      .toEqual(['club', 'dead', 'festival', 'main'])
+      .toEqual(['club', 'dead', 'festival', 'filler', 'main'])
   })
 
   it('never loses a value a venue is already using', () => {
@@ -35,6 +35,6 @@ describe('effectiveTypeOptions', () => {
 
   it('works with no rows and no managed list', () => {
     expect(effectiveTypeOptions([], [])).toEqual([])
-    expect(effectiveTypeOptions(null, DEFAULT_VENUE_TYPES)).toEqual(['dead', 'festival', 'main'])
+    expect(effectiveTypeOptions(null, DEFAULT_VENUE_TYPES)).toEqual(['dead', 'festival', 'filler', 'main'])
   })
 })

@@ -1,13 +1,14 @@
-// A venue's `Type` is a free CSV column, but three values carry behaviour in
-// classify.js: 'dead' excludes the venue entirely and 'festival' gates it on the
-// festival booking window. 'main' is the ordinary case. Everything else is just
+// A venue's `Type` is a free CSV column, but some values carry behaviour in
+// classify.js: 'dead' excludes the venue entirely, 'festival' gates it on the
+// festival booking window, and 'filler' only counts for bands that book filler
+// venues. 'main' is the ordinary case. Everything else is just
 // a label the user made up, and the dropdown exists to stop typos from silently
 // turning a "dead" venue back into an active one.
-export const DEFAULT_VENUE_TYPES = ['main', 'festival', 'dead']
+export const DEFAULT_VENUE_TYPES = ['main', 'festival', 'filler', 'dead']
 
 // Types whose value changes how the app classifies a row. Surfaced in the
 // settings UI so the user knows which names are more than labels.
-export const BEHAVIORAL_VENUE_TYPES = ['festival', 'dead']
+export const BEHAVIORAL_VENUE_TYPES = ['festival', 'filler', 'dead']
 
 export function normalizeVenueTypes(types) {
   const seen = new Set()

@@ -554,9 +554,10 @@ export default function SettingsPanel({ config, rows = [], onOpenImport, onOpenT
                 <div className="space-y-4">
                   <p className="text-xs text-gray-400 dark:text-gray-500">
                     The values offered in a venue’s Type dropdown. Only{' '}
-                    <span className="font-mono">festival</span> and <span className="font-mono">dead</span> change
-                    anything — a festival is only shown when its booking window is open, and a dead venue is
-                    excluded from all outreach. Everything else is just a label.
+                    <span className="font-mono">festival</span>, <span className="font-mono">filler</span> and{' '}
+                    <span className="font-mono">dead</span> change anything — a festival is only shown when its
+                    booking window is open, a filler venue only for bands that book filler venues (Bands section),
+                    and a dead venue is excluded from all outreach. Everything else is just a label.
                   </p>
 
                   {venueTypes.length === 0 && (
@@ -813,6 +814,7 @@ export default function SettingsPanel({ config, rows = [], onOpenImport, onOpenT
                             className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-400"
                           />
                           Book filler venues
+                          <span className="text-xs text-gray-400 dark:text-gray-500">— venues of Type “filler” show up in Send and the other lists</span>
                         </label>
                       </div>
                     ))}

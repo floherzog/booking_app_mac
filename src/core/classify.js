@@ -28,7 +28,10 @@ function festivalInWindow(timeFrame, today, rules) {
   })
 }
 
-export function classifyBooking(row, today, rules = DEFAULT_RULES) {
+// `ctx.fillerBands`: lower-cased names of the bands with "Book filler venues"
+// switched on (Settings ▸ Bands). A venue of Type "filler" only enters the
+// outreach lists for those bands; without the set, no band books fillers.
+export function classifyBooking(row, today, rules = DEFAULT_RULES, ctx = {}) {
   const type = (row['Type'] || '').toLowerCase().trim()
   const note = row['Note'] || ''
   const followUpRaw = row['Follow Up Date'] || ''
@@ -36,6 +39,10 @@ export function classifyBooking(row, today, rules = DEFAULT_RULES) {
   const timeFrame = row['Time Frame'] || ''
 
   if (type === 'dead') return STATUS.DEAD
+
+  if (type === 'filler' && !ctx.fillerBands?.has(String(row['Band'] || '').trim().toLowerCase())) {
+    return STATUS.FILLER_OFF
+  }
 
   // Missing a field required to send (venue/band/email) → keep out of every
   // send/follow-up list; the red "!" flag is enough of a prompt to fix it.

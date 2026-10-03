@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { classifyBooking } from '@core/classify'
 import { getSettings, saveSettings } from './lib/config'
 import { ACTION_STATUSES, APP_COLUMNS, getMissingFields, getMissingSeverity } from '@core/constants'
-import { effectiveBandOptions, bandsFromRows, normalizeBands } from '@core/bands'
+import { effectiveBandOptions, bandsFromRows, normalizeBands, fillerBandSet } from '@core/bands'
 import { effectiveTypeOptions } from '@core/venueTypes'
 import { computeNextBatch } from '@core/nextBatch'
 import { replyHealth } from '@core/replyStatus'
@@ -87,6 +87,12 @@ export default function App() {
   const today = useMemo(() => new Date(), [])
   const rules = useMemo(() => mergeRules(settings?.rules), [settings])
   const multiBand = isMultiBand(settings)
+  // Bands that book filler venues: a venue of Type "filler" only counts as an
+  // outreach target for these. Keyed on the names, so it is stable across
+  // unrelated settings changes and the reclassify effect below runs only when
+  // the set really changes.
+  const fillerKey = [...fillerBandSet(settings?.bands)].sort().join('\n')
+  const classifyCtx = useMemo(() => ({ fillerBands: new Set(fillerKey ? fillerKey.split('\n') : []) }), [fillerKey])
 
   // Single writer for the settings file: persist, then adopt whatever main
   // actually stored (it re-applies defaults and merges the rules).
@@ -112,7 +118,7 @@ export default function App() {
       const { rows: raw, missing = [] } = await a.load()
       setMissingFile(null)
       const multi = isMultiBand(s)
-      const classified = linkVenues(raw.map((r, i) => ({ ...r, _idx: i, _status: classifyBooking(r, today, activeRules) })), multi)
+      const classified = linkVenues(raw.map((r, i) => ({ ...r, _idx: i, _status: classifyBooking(r, today, activeRules, { fillerBands: fillerBandSet(s.bands) }) })), multi)
       const nextBatchSet = computeNextBatch(classified, today, activeRules)
       setRows(classified.map(r => ({ ...r, _nextBatch: nextBatchSet.has(r._idx), _missingSeverity: getMissingSeverity(r) })))
       // Band files that disagree about a venue's shared data (edited outside the
@@ -300,17 +306,18 @@ export default function App() {
     refreshTemplates()
   }, [refreshTemplates])
 
-  // Reclassify in place whenever the rules change, so a rules edit shows up on
-  // the badges and the next-batch chip immediately — no reload needed.
+  // Reclassify in place whenever the rules change — or which bands book filler
+  // venues — so the edit shows up on the badges and the next-batch chip
+  // immediately, no reload needed.
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setRows(prev => {
       if (prev.length === 0) return prev
-      const reclassified = prev.map(r => ({ ...r, _status: classifyBooking(r, today, rules) }))
+      const reclassified = prev.map(r => ({ ...r, _status: classifyBooking(r, today, rules, classifyCtx) }))
       const nextBatchSet = computeNextBatch(reclassified, today, rules)
       return reclassified.map(r => ({ ...r, _nextBatch: nextBatchSet.has(r._idx), _missingSeverity: getMissingSeverity(r) }))
     })
-  }, [rules, today])
+  }, [rules, today, classifyCtx])
 
   // When a band's touring dates or filler flag change in Settings, offer to push
   // those values onto that band's venue rows (Dates / filler columns). Applied as
@@ -489,7 +496,7 @@ export default function App() {
     if (adapter?.kind === 'multiBand' && JSON.stringify(adapter.manifest) !== JSON.stringify(settings.storage.multiBand)) {
       persist({ ...settings, storage: { ...settings.storage, multiBand: adapter.manifest } }).catch(e => setError(e.message))
     }
-    const reclassified = updatedRows.map(r => ({ ...r, _status: classifyBooking(r, today, rules) }))
+    const reclassified = updatedRows.map(r => ({ ...r, _status: classifyBooking(r, today, rules, classifyCtx) }))
     const nextBatchSet = computeNextBatch(reclassified, today, rules)
     setRows(reclassified.map(r => ({ ...r, _nextBatch: nextBatchSet.has(r._idx), _missingSeverity: getMissingSeverity(r) })))
     setEdits({})
@@ -517,14 +524,14 @@ export default function App() {
       // `additions` so they show in — and enable — the Save flow.
       const nextIdx = rows.reduce((max, r) => Math.max(max, r._idx), -1) + 1
       const appended = importedRaw.map((r, i) => ({ ...r, _idx: nextIdx + i }))
-      const merged = linkVenues([...rows, ...appended], multiBand).map(r => ({ ...r, _status: classifyBooking(r, today, rules) }))
+      const merged = linkVenues([...rows, ...appended], multiBand).map(r => ({ ...r, _status: classifyBooking(r, today, rules, classifyCtx) }))
       const nextBatchSet = computeNextBatch(merged, today, rules)
       setRows(merged.map(r => ({ ...r, _nextBatch: nextBatchSet.has(r._idx), _missingSeverity: getMissingSeverity(r) })))
       setAdditions(prev => new Set([...prev, ...appended.map(r => r._idx)]))
       return
     }
     // replace
-    const classified = linkVenues(importedRaw.map((r, i) => ({ ...r, _idx: i, _status: classifyBooking(r, today, rules) })), multiBand)
+    const classified = linkVenues(importedRaw.map((r, i) => ({ ...r, _idx: i, _status: classifyBooking(r, today, rules, classifyCtx) })), multiBand)
     const nextBatchSet = computeNextBatch(classified, today, rules)
     setRows(classified.map(r => ({ ...r, _nextBatch: nextBatchSet.has(r._idx), _missingSeverity: getMissingSeverity(r) })))
     setEdits({})
@@ -562,7 +569,7 @@ export default function App() {
       _idx: newIdx,
       _venueId: row._venueId,
     }
-    const classifiedEntry = { ...entry, _status: classifyBooking(entry, today, rules), _nextBatch: false, _missingSeverity: getMissingSeverity(entry) }
+    const classifiedEntry = { ...entry, _status: classifyBooking(entry, today, rules, classifyCtx), _nextBatch: false, _missingSeverity: getMissingSeverity(entry) }
     setRows(prev => [...prev, classifiedEntry])
     setAdditions(prev => new Set([...prev, newIdx]))
     return newIdx
@@ -634,7 +641,7 @@ export default function App() {
       ...Object.fromEntries(APP_COLUMNS.map(c => [c.key, ''])),
       _idx: newIdx,
       _venueId: `new${newIdx}`,
-      _status: classifyBooking({}, today, rules),
+      _status: classifyBooking({}, today, rules, classifyCtx),
       _nextBatch: false,
       _missingSeverity: getMissingSeverity({}),
     }
@@ -665,7 +672,7 @@ export default function App() {
     const name = (await ask({
       label: 'New venue type',
       placeholder: 'club',
-      hint: 'Only "festival" and "dead" change how a venue is classified; anything else is just a label.',
+      hint: 'Only "festival", "filler" and "dead" change how a venue is classified; anything else is just a label.',
       confirmLabel: 'Add',
     }))?.trim()
     if (!name) return null

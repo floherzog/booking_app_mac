@@ -13,6 +13,10 @@ export function buildLogicNodes(rules = DEFAULT_RULES) {
   return [
     { col: 'Type', q: 'Type is "dead"', yes: 'DEAD' },
     {
+      col: 'Type + Band', q: 'Type is "filler" and the band does not book filler venues', yes: 'FILLER_OFF',
+      note: 'Settings ▸ Bands ▸ "Book filler venues" decides, per band.',
+    },
+    {
       col: 'Required fields', q: 'Missing Venue, Band, or Email', yes: 'MISSING_INFO',
       note: 'Hidden from every send/follow-up list until the flagged fields are filled in.',
     },

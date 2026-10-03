@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { fillerBandSet } from '@core/bands'
 import { classifyBooking } from '@core/classify'
 import { STATUS } from '@core/constants'
 import { DEFAULT_RULES, mergeRules } from '@core/rules'
@@ -112,5 +113,35 @@ describe('classifyBooking — behaviour flips with custom rules', () => {
     expect(classifyBooking(r, TODAY)).toBe(STATUS.SEND)
     const rules = mergeRules({ ...DEFAULT_RULES, defaultFrequencyDays: 180 })
     expect(classifyBooking(r, TODAY, rules)).toBe(STATUS.RECENT_CONTACT)
+  })
+})
+
+describe('filler venues', () => {
+  const filler = (Band, extra = {}) => row({ Type: 'filler', Band, ...extra })
+  const ctx = { fillerBands: new Set(['alpha']) }
+
+  it('are out of outreach for a band that does not book fillers', () => {
+    expect(classifyBooking(filler('Beta'), TODAY, undefined, ctx)).toBe(STATUS.FILLER_OFF)
+    expect(classifyBooking(filler('Beta', { 'Last emailed': '01.01.24' }), TODAY, undefined, ctx)).toBe(STATUS.FILLER_OFF)
+  })
+
+  it('classify normally for a band that does — case and spacing of the name do not matter', () => {
+    expect(classifyBooking(filler(' ALPHA '), TODAY, undefined, ctx)).toBe(STATUS.NEVER_CONTACTED)
+    expect(classifyBooking(filler('Alpha', { 'Last emailed': '01.01.24' }), TODAY, undefined, ctx)).toBe(STATUS.SEND)
+  })
+
+  it('without band settings, no band books fillers', () => {
+    expect(classifyBooking(filler('Alpha'), TODAY)).toBe(STATUS.FILLER_OFF)
+  })
+
+  it('a dead venue stays dead, and other types ignore the filler setting', () => {
+    expect(classifyBooking(row({ Type: 'dead', Band: 'Beta' }), TODAY, undefined, ctx)).toBe(STATUS.DEAD)
+    expect(classifyBooking(row({ Type: 'main', Band: 'Beta' }), TODAY, undefined, ctx)).toBe(STATUS.NEVER_CONTACTED)
+  })
+})
+
+describe('fillerBandSet', () => {
+  it('collects the bands with "Book filler venues" on, lower-cased', () => {
+    expect([...fillerBandSet([{ name: 'Alpha ', bookFiller: true }, { name: 'Beta', bookFiller: false }, 'Gamma'])]).toEqual(['alpha'])
   })
 })

@@ -63,7 +63,7 @@ const SECTIONS = [
     fields: [
       { key: 'Venue', label: 'Venue', type: 'text', span: 2 },
       { key: 'Band', label: 'Band', type: 'select' },
-      { key: 'Type', label: 'Type', type: 'select', hint: 'Only "festival" and "dead" change the classification.' },
+      { key: 'Type', label: 'Type', type: 'select', hint: 'Only "festival", "filler" and "dead" change the classification.' },
       { key: 'City', label: 'City', type: 'text' },
       { key: 'Country', label: 'Country', type: 'text' },
     ],

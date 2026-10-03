@@ -22,6 +22,7 @@ export const STATUS = {
   RECENT_CONTACT: 'RECENT_CONTACT',
   RECENTLY_PLAYED: 'RECENTLY_PLAYED',
   FESTIVAL_INELIGIBLE: 'FESTIVAL_INELIGIBLE',
+  FILLER_OFF: 'FILLER_OFF',
   MISSING_INFO: 'MISSING_INFO',
   DEAD: 'DEAD',
 }
@@ -83,6 +84,13 @@ export const STATUS_META = {
     mapColor: '#0EA5E9',
     priority: 8,
   },
+  [STATUS.FILLER_OFF]: {
+    label: 'Filler (not booking)',
+    badge: 'bg-stone-100 text-stone-500 dark:bg-stone-800 dark:text-stone-400',
+    row: 'opacity-60',
+    mapColor: '#A8A29E',
+    priority: 8.5,
+  },
   [STATUS.MISSING_INFO]: {
     label: 'Missing Info',
     badge: 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300',
@@ -110,6 +118,7 @@ const STATUS_DESCRIPTIONS = {
   [STATUS.ON_HOLD]: r => `Note contains a hold marker (e.g. ${r.holdKeywords.slice(0, 3).map(k => `"${k}"`).join(', ')}) — skipped for outreach until ${r.holdOverrideDays} days have passed.`,
   [STATUS.RECENTLY_PLAYED]: r => `Last played less than ${r.recentlyPlayedDays} days ago (or has an upcoming gig) — skipped for booking outreach until then.`,
   [STATUS.FESTIVAL_INELIGIBLE]: r => `Festival booking window is not open right now — must be more than ${r.festivalFutureMonths} months out or more than ${r.festivalPastMonths} months past.`,
+  [STATUS.FILLER_OFF]: () => 'A filler venue, and its band is not booking filler venues right now (Settings ▸ Bands ▸ "Book filler venues") — kept out of every send/follow-up list until it is.',
   [STATUS.MISSING_INFO]: () => 'Missing a field required to send (venue name, band, or email). Fix the flagged fields before it can be emailed — hidden from send/follow-up lists until then.',
   [STATUS.DEAD]: () => 'Type is set to "dead" — no longer being booked, excluded from all outreach.',
 }

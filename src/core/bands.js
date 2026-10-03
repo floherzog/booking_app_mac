@@ -38,6 +38,12 @@ export function effectiveBandOptions(rows, managed = []) {
   return [...set].sort((a, b) => a.localeCompare(b))
 }
 
+// Lower-cased names of the bands that book filler venues — what classifyBooking
+// checks a venue of Type "filler" against.
+export function fillerBandSet(bands) {
+  return new Set(normalizeBands(bands).filter(b => b.bookFiller && b.name).map(b => b.name.trim().toLowerCase()))
+}
+
 // Distinct band values present in the rows (used to seed the managed list on
 // first run). Sorted, empties dropped.
 export function bandsFromRows(rows) {
