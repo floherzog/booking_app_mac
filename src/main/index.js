@@ -3,7 +3,6 @@ import { app, shell, dialog, BrowserWindow, Menu, protocol, net } from 'electron
 import { pathToFileURL } from 'node:url'
 import { registerIpc } from './ipc/index.js'
 import { checkForUpdates } from './ipc/updates.js'
-import { readSettings } from './settingsStore.js'
 import { startScheduler } from './scheduler.js'
 
 const isDev = !app.isPackaged
@@ -41,7 +40,8 @@ function sendToRenderer(channel) {
 }
 
 // "Check for Updates…" — nothing installs itself; we compare against the latest
-// GitHub release and hand the user the download page.
+// GitHub release. Up to date or unreachable gets a short dialog (the user asked);
+// a newer release is shown in the window's update banner.
 async function promptForUpdate({ preloaded = null } = {}) {
   const parent = currentWindow()
   const result = preloaded || await checkForUpdates({ currentVersion: app.getVersion() })
@@ -66,32 +66,9 @@ async function promptForUpdate({ preloaded = null } = {}) {
     return
   }
 
-  const { response } = await dialog.showMessageBox(parent, {
-    type: 'info',
-    message: `Booking ${result.latest} is available.`,
-    // Note the install steps rather than assume they are remembered: macOS 15
-    // removed the right-click → Open bypass, so Privacy & Security is now the
-    // only way past the "could not verify" block an unnotarised app gets.
-    detail: `You are running ${result.current}.\n\n${result.downloadUrl ? 'Download saves the .dmg to your Downloads folder. Open it' : 'Download the .dmg'}, drag Booking to Applications and replace the old copy.\n\nThe first launch is blocked with "Apple could not verify…" — open System Settings → Privacy & Security and press "Open Anyway".${result.notes ? `\n\n${String(result.notes).slice(0, 600)}` : ''}`,
-    buttons: ['Download', 'Later'],
-    defaultId: 0,
-    cancelId: 1,
-  })
-  // The .dmg itself when the release has one for this Mac — the browser saves
-  // it straight away — otherwise the release page.
-  if (response === 0) shell.openExternal(result.downloadUrl || result.url)
-}
-
-// Settings ▸ General can have the app look for a release on its own. It stays
-// quiet unless there is actually something newer: no dialog when up to date, and
-// none when offline (checkForUpdates returns an error string rather than throwing).
-async function autoCheckForUpdates() {
-  try {
-    if (!readSettings()?.general?.autoCheckUpdates) return
-    const result = await checkForUpdates({ currentVersion: app.getVersion() })
-    if (!result || result.error || !result.newer) return
-    await promptForUpdate({ preloaded: result })
-  } catch { /* an update check must never get in the way of starting up */ }
+  // Something newer: the window's banner says so (with Download and What's
+  // new), rather than a dialog that has to be dismissed.
+  parent?.webContents.send('updates:available', result)
 }
 
 function buildMenu() {
@@ -171,7 +148,8 @@ function createWindow() {
 
   win.on('ready-to-show', () => {
     win.show()
-    autoCheckForUpdates()
+    // The automatic update check runs in the window (App.jsx) once settings
+    // have loaded, so its banner can never miss a message sent too early.
   })
 
   // In dev, surface renderer console output on the terminal so a headless run

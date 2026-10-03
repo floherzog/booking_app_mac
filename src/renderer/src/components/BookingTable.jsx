@@ -116,6 +116,9 @@ function perBand(col) {
   }
 }
 
+// The height of one band's line in a stacked row: h-[5rem] below.
+const BAND_LINE_PX = 80
+
 const withPerBand = col => (PER_BAND.has(col.id ?? col.accessorKey) ? perBand(col) : col)
 
 // Rows (entries) → groups, one per venue, entries ordered most urgent first.
@@ -725,7 +728,20 @@ export default function BookingTable({ rows, edits, onEdit, onVenueClick, sortBy
 
   const virtualizer = useWindowVirtualizer({
     count: sortedRows.length,
-    estimateSize: () => (isDesktop ? 41 : 118),
+    // Measured sizes are remembered per venue, not per position: after a filter
+    // chip reorders the list, position 5 is a different venue, and reusing its
+    // old height made the list correct the scroll position over and over.
+    getItemKey: index => sortedRows[index]?.original._venueId ?? sortedRows[index]?.id ?? index,
+    // As close to the real row as can be known before drawing it. A row above
+    // the screen that turns out taller or shorter than estimated shifts the page
+    // when it is first measured — scrolling up through stacked multi-band rows
+    // (240px each, estimated at 41) threw the list up and down by that much.
+    // Stacked rows are exact: a fixed-height line per band (BAND_LINE_PX).
+    estimateSize: index => {
+      const lines = sortedRows[index]?.original._entries?.length || 1
+      if (lines > 1) return isDesktop ? lines * BAND_LINE_PX + 1 : 70 + lines * 92
+      return isDesktop ? 96 : 118
+    },
     overscan: 10,
     scrollMargin,
   })
@@ -744,7 +760,9 @@ export default function BookingTable({ rows, edits, onEdit, onVenueClick, sortBy
 
   if (!isDesktop) {
     return (
-      <div ref={listRef} className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 overflow-hidden">
+      // overflow-anchor: Chromium's scroll anchoring would correct for the same
+      // size changes the virtualizer already corrects for — twice is a jump.
+      <div ref={listRef} style={{ overflowAnchor: 'none' }} className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 overflow-hidden">
         {sortedRows.length === 0 ? empty : (
           <>
             <div style={{ height: padTop }} />
@@ -764,7 +782,8 @@ export default function BookingTable({ rows, edits, onEdit, onVenueClick, sortBy
   }
 
   return (
-    <div ref={listRef} className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
+    // overflow-anchor: see the mobile list above.
+    <div ref={listRef} style={{ overflowAnchor: 'none' }} className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
       <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700 text-sm">
         <thead className="bg-gray-50 dark:bg-gray-800">
           {table.getHeaderGroups().map(hg => (

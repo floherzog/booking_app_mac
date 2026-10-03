@@ -33,6 +33,7 @@ import MergeModal from './components/MergeModal'
 import BulkEditBar from './components/BulkEditBar'
 import { useInlinePrompt } from './components/InlinePrompt'
 import ErrorBoundary from './components/ErrorBoundary'
+import UpdateBanner from './components/UpdateBanner'
 
 const SEARCH_FIELDS = ['Venue', 'City', 'Country', 'Contact', 'Band', 'Email', 'Note', 'Status', 'Text', 'Time Frame', 'Dates']
 
@@ -68,6 +69,7 @@ export default function App() {
   const [showLogic, setShowLogic] = useState(false)
   const [confirmDiscard, setConfirmDiscard] = useState(false)
   const [venueDetail, setVenueDetail] = useState(null)
+  const [update, setUpdate] = useState(null) // a newer release, for the banner
   const [filters, setFilters] = useState({ band: '', country: '', type: '', status: '', actionOnly: false, nextBatch: false, missingInfo: false, duplicate: false, autoSend: false, search: '', advanced: [], sort: null })
   const [edits, setEdits] = useState({})
   const [deletions, setDeletions] = useState(new Set())
@@ -208,6 +210,27 @@ export default function App() {
   }
   // Subscribed once; the ref keeps the handler looking at the current rows.
   useEffect(() => window.bookingApi.onScheduleUpdate(p => onScheduleDone.current?.(p)), [])
+
+  // Updates: once per launch when Settings ▸ General asks for it, quietly — the
+  // banner appears only for something newer, and not again for a version the
+  // user dismissed. "Check for Updates…" in the menu always shows it.
+  const updateChecked = useRef(false)
+  useEffect(() => {
+    if (!settings || updateChecked.current) return
+    updateChecked.current = true
+    if (!settings.general?.autoCheckUpdates) return
+    window.bookingApi.checkForUpdates().then(r => {
+      let dismissed = null
+      try { dismissed = localStorage.getItem('dismissedUpdate') } catch { /* storage unavailable */ }
+      if (r?.newer && r.latest !== dismissed) setUpdate(r)
+    }).catch(() => { /* offline: say nothing */ })
+  }, [settings])
+  useEffect(() => window.bookingApi.onUpdateAvailable(r => setUpdate(r)), [])
+
+  function dismissUpdate() {
+    try { localStorage.setItem('dismissedUpdate', update?.latest || '') } catch { /* storage unavailable */ }
+    setUpdate(null)
+  }
 
   // Kick off the initial fetch once on mount. Fetching is a legitimate effect and the
   // setLoading/setRows calls inside load() are its whole purpose, so opt out of the
@@ -799,6 +822,7 @@ export default function App() {
     <RulesProvider rules={rules}>
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors">
       {promptNode}
+      <UpdateBanner update={update} onDismiss={dismissUpdate} />
       <div className="max-w-[1700px] mx-auto px-4 py-6 space-y-5">
 
         {/* Desktop header — original layout */}

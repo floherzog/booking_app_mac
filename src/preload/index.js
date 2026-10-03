@@ -89,6 +89,13 @@ const api = {
     return () => ipcRenderer.removeListener(channel, handler)
   },
 
+  // "Check for Updates…" found a newer release: the window shows its banner.
+  onUpdateAvailable: cb => {
+    const handler = (_e, result) => cb(result)
+    ipcRenderer.on('updates:available', handler)
+    return () => ipcRenderer.removeListener('updates:available', handler)
+  },
+
   // The scheduler in main reports back here: a run fired, or the queue changed.
   // Same one-channel-per-purpose rule as onMenu — no general subscribe.
   onScheduleUpdate: cb => {
